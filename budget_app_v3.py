@@ -3,8 +3,8 @@ import pandas as pd
 import json, os
 from io import BytesIO
 
-st.set_page_config(page_title="Familjebudget Dashboard v5", layout="wide")
-st.title("💶 Familjebudget – Dashboard v5")
+st.set_page_config(page_title="Familjebudget Dashboard v6", layout="wide")
+st.title("💶 Familjebudget – Dashboard v6")
 
 # -----------------------
 # 1️⃣ Fler användare via JSON
@@ -50,7 +50,7 @@ categories = {
 # -----------------------
 # 4️⃣ Ladda eller skapa budget-data
 # -----------------------
-DATA_FILE = "budget_data_v5.json"
+DATA_FILE = "budget_data_v6.json"
 if os.path.exists(DATA_FILE):
     with open(DATA_FILE,"r") as f:
         budget_data = json.load(f)
@@ -73,8 +73,8 @@ for category, items in categories.items():
             budget_data[month][category] = {}
 
         rows = []
-        for item in items + ["", "", ""]:  # 3 extra tomma rader
-            key = f"{item or 'Tom'}"
+        for idx, item in enumerate(items + ["", "", ""]):  # Lägg till 3 extra tomma rader med unik index
+            key = f"{item or 'Tom'}_{idx}"
             
             # Säkerställ float
             try:
@@ -195,12 +195,11 @@ if export_format=="Excel (.xlsx)":
                 df_month = pd.DataFrame(month_df, columns=["Kategori","Post","Budget","Faktiskt"])
                 df_month.to_excel(writer, sheet_name=m[:31], index=False)
                 
-                # Conditional formatting
                 workbook = writer.book
                 worksheet = writer.sheets[m[:31]]
                 red_format = workbook.add_format({'bg_color':'#FFC7CE'})
                 green_format = workbook.add_format({'bg_color':'#C6EFCE'})
-                worksheet.conditional_format('D2:D1000', {'type':'cell','criteria':'>','value': 'C2','format':red_format})
+                worksheet.conditional_format('D2:D1000', {'type':'cell','criteria':'>','value':'C2','format':red_format})
                 worksheet.conditional_format('D2:D1000', {'type':'cell','criteria':'<=','value':'C2','format':green_format})
         writer.save()
         processed_data = output.getvalue()
@@ -214,4 +213,3 @@ else:
                     combined.append([m,cat,item,vals["Budget"],vals["Faktiskt"]])
     df_csv = pd.DataFrame(combined, columns=["Månad","Kategori","Post","Budget","Faktiskt"])
     st.download_button(label="Ladda ner CSV", data=df_csv.to_csv(index=False), file_name="Familjebudget.csv")
-
