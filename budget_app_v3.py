@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import json, os
@@ -28,6 +29,7 @@ else:
 def logout():
     st.session_state.logged_in = False
     st.session_state.username = ""
+    st.experimental_rerun()  # säker logout
 
 # -----------------------
 # 3️⃣ Login
@@ -40,26 +42,25 @@ if not st.session_state.logged_in:
         if user in users and password == users[user]:
             st.session_state.logged_in = True
             st.session_state.username = user
-            st.experimental_rerun()
+            st.success("Inloggning lyckades! Ladda om sidan...")
+            st.stop()  # Stoppar scriptet här, laddar om med logged_in=True
         else:
             st.error("Fel användarnamn eller lösenord")
+
+# -----------------------
+# 4️⃣ Huvudapp efter login
+# -----------------------
 else:
-    # -----------------------
-    # 4️⃣ Logga ut knapp
-    # -----------------------
+    # Logga ut knapp
     st.sidebar.button("Logga ut", on_click=logout)
     st.title(f"💶 Familjebudget – Välkommen {st.session_state.username}")
 
-    # -----------------------
-    # 5️⃣ Månadsval
-    # -----------------------
+    # Månadsval
     months = ["Januari","Februari","Mars","April","Maj","Juni",
               "Juli","Augusti","September","Oktober","November","December"]
     month = st.selectbox("Välj månad", months)
 
-    # -----------------------
-    # 6️⃣ Kategorier & underrubriker
-    # -----------------------
+    # Kategorier & underrubriker
     categories = {
         "Inkomster": ["Danis lön","Ankis lön","Hästförsäljning",
                        "Barnbidrag (Kela)","Mammapeng (Kela)","Hemvårdsstöd (Kela)"],
@@ -72,9 +73,7 @@ else:
         "Sparande": ["Aktia Fonder","S-Gruppens Fonder","Buffert","Nordnet Aktier"]
     }
 
-    # -----------------------
-    # 7️⃣ Ladda eller skapa budget-data och anteckningar
-    # -----------------------
+    # Ladda eller skapa budget-data och anteckningar
     DATA_FILE = "budget_data_v7.json"
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE,"r") as f:
@@ -85,18 +84,14 @@ else:
     if month not in budget_data:
         budget_data[month] = {"notes":""}
 
-    # -----------------------
-    # 8️⃣ Anteckningsruta (synlig hela tiden)
-    # -----------------------
+    # Anteckningsruta (synlig hela tiden)
     if "notes" not in budget_data[month]:
         budget_data[month]["notes"] = ""
     st.subheader("📝 Anteckningar")
     notes = st.text_area("Skriv här", value=budget_data[month]["notes"], height=150)
     budget_data[month]["notes"] = notes
 
-    # -----------------------
-    # 9️⃣ Inmatning – dropdowns per kategori
-    # -----------------------
+    # Inmatning – dropdowns per kategori
     total_income = 0
     total_expenses = 0
     summary = []
@@ -162,9 +157,7 @@ else:
 
             summary.append([category,budget_sum,actual_sum])
 
-    # -----------------------
-    # 10️⃣ Beräkna kvar att använda/spara
-    # -----------------------
+    # Beräkna kvar att använda/spara
     kvar = total_income - total_expenses
     st.divider()
     st.subheader("💰 Totala inkomster & kvar att använda")
@@ -172,15 +165,11 @@ else:
     st.metric("Totala kostnader", f"{total_expenses:.2f} €")
     st.metric("Kvar att använda / spara", f"{kvar:.2f} €")
 
-    # -----------------------
-    # 11️⃣ Spara JSON
-    # -----------------------
+    # Spara JSON
     with open(DATA_FILE,"w") as f:
         json.dump(budget_data,f,indent=4)
 
-    # -----------------------
-    # 12️⃣ Exportera Excel / CSV
-    # -----------------------
+    # Exportera Excel / CSV
     st.divider()
     st.header("💾 Exportera data")
     export_format = st.radio("Välj format:", ["Excel (.xlsx)","CSV (.csv)"])
