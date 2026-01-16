@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import json, os
@@ -193,8 +192,8 @@ else:
                     green_format = workbook.add_format({'bg_color':'#C6EFCE'})
                     worksheet.conditional_format('D2:D1000', {'type':'cell','criteria':'>','value': 'C2','format':red_format})
                     worksheet.conditional_format('D2:D1000', {'type':'cell','criteria':'<=','value':'C2','format':green_format})
-            writer.save()
-            processed_data = output.getvalue()
+
+        processed_data = output.getvalue()  # ✅ utan writer.save()
         st.download_button(label="Ladda ner Excel", data=processed_data, file_name="Familjebudget.xlsx")
     else:
         combined = []
