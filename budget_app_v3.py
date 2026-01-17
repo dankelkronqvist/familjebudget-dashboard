@@ -1,7 +1,7 @@
 import streamlit as st
 
 # =========================
-# CSS
+# CSS – färger
 # =========================
 st.markdown("""
 <style>
@@ -42,9 +42,9 @@ if not st.session_state.logged_in:
             st.error("Fel uppgifter")
     st.stop()
 
-# Logout
-col1, col2 = st.columns([6,1])
-with col2:
+# Logga ut
+col_l, col_r = st.columns([6,1])
+with col_r:
     if st.button("Logga ut"):
         st.session_state.clear()
         st.stop()
@@ -60,7 +60,7 @@ months = [
 if "budget" not in st.session_state:
     st.session_state.budget = {}
 
-month = st.selectbox("📅 Månad", months)
+month = st.selectbox("📅 Välj månad", months)
 
 if month not in st.session_state.budget:
     st.session_state.budget[month] = {
@@ -99,7 +99,8 @@ if st.button("Lägg till rubrik"):
 # =========================
 cols = st.columns(len(data))
 
-total_income = total_cost = 0
+total_income = 0
+total_cost = 0
 
 for idx, (cat, items) in enumerate(list(data.items())):
     with cols[idx]:
@@ -107,21 +108,39 @@ for idx, (cat, items) in enumerate(list(data.items())):
         cat_actual = sum(v["actual"] for v in items.values()) if items else 0
 
         with st.expander(f"{cat} (€{cat_actual:.2f})"):
-            # Byt namn
-            new_name = st.text_input("Byt namn", value=cat, key=f"rename_{cat}")
-            if new_name != cat:
+            # Byt namn på rubrik
+            new_name = st.text_input("Byt namn på rubrik", value=cat, key=f"rename_{cat}")
+            if new_name != cat and new_name:
                 data[new_name] = data.pop(cat)
                 st.stop()
 
             # Lägg till underrubrik
             new_item = st.text_input("Ny underrubrik", key=f"add_{cat}")
-            if st.button("Lägg till", key=f"btn_{cat}"):
-                if new_item:
+            if st.button("Lägg till underrubrik", key=f"btn_{cat}"):
+                if new_item and new_item not in items:
                     items[new_item] = {"budget": 0.0, "actual": 0.0}
 
+            st.divider()
+
             for item, vals in items.items():
-                colored_input(f"{item} Budget (€)", vals["budget"], f"{month}_{cat}_{item}_b", "budget")
-                colored_input(f"{item} Faktiskt (€)", vals["actual"], f"{month}_{cat}_{item}_a", "actual")
+                col_b, col_a = st.columns(2)
+
+                with col_b:
+                    colored_input(
+                        f"{item} – Budget (€)",
+                        vals["budget"],
+                        f"{month}_{cat}_{item}_b",
+                        "budget"
+                    )
+
+                with col_a:
+                    colored_input(
+                        f"{item} – Faktiskt (€)",
+                        vals["actual"],
+                        f"{month}_{cat}_{item}_a",
+                        "actual"
+                    )
+
                 vals["budget"] = st.session_state[f"{month}_{cat}_{item}_b"]
                 vals["actual"] = st.session_state[f"{month}_{cat}_{item}_a"]
 
@@ -138,6 +157,7 @@ for idx, (cat, items) in enumerate(list(data.items())):
 # =========================
 st.divider()
 st.subheader("📊 Sammanfattning")
+
 st.metric("Totala inkomster", f"€{total_income:.2f}")
 st.metric("Totala kostnader", f"€{total_cost:.2f}")
 st.metric("💰 Kvar att använda / spara", f"€{total_income - total_cost:.2f}")
