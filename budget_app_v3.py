@@ -76,7 +76,7 @@ if not st.session_state.logged_in:
         if u in users and p == users[u]:
             st.session_state.logged_in = True
             st.session_state.username = u
-            st.stop()  # Istället för experimental_rerun
+            st.stop()
         else:
             st.error("Fel uppgifter")
     st.stop()
