@@ -131,7 +131,8 @@ if st.button("Lägg till rubrik"):
     if new_cat and new_cat not in categories:
         c.execute("INSERT INTO categories (month, name) VALUES (?,?)", (month,new_cat))
         conn.commit()
-        st.experimental_rerun()
+        st.session_state["reload"] = not st.session_state.get("reload", False)
+        st.stop()  # ersätter experimental_rerun
 
 # =========================
 # Dashboard – rubriker på rad
@@ -153,7 +154,8 @@ for idx, cat in enumerate(categories):
             c.execute("UPDATE categories SET name=? WHERE month=? AND name=?", (new_name, month, cat))
             c.execute("UPDATE items SET category=? WHERE month=? AND category=?", (new_name, month, cat))
             conn.commit()
-            st.experimental_rerun()
+            st.session_state["reload"] = not st.session_state.get("reload", False)
+            st.stop()
 
         with st.expander(f"{cat}"):
             new_item = st.text_input("Ny underrubrik", key=f"add_{cat}")
@@ -165,7 +167,8 @@ for idx, cat in enumerate(categories):
                         VALUES (?,?,?,?,?,?)
                     """, (month, cat, new_item, 0.0, 0.0, new_date))
                     conn.commit()
-                    st.experimental_rerun()
+                    st.session_state["reload"] = not st.session_state.get("reload", False)
+                    st.stop()
 
             c.execute("SELECT item_id, name,budget,actual,date FROM items WHERE month=? AND category=? ORDER BY item_id", (month,cat))
             items = c.fetchall()
