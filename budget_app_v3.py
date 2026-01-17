@@ -128,7 +128,8 @@ if st.sidebar.button("Lägg till rubrik"):
         c.execute("INSERT INTO categories (month, name, position) VALUES (?,?,?)",
                   (month, new_cat, len(existing)))
         conn.commit()
-        st.experimental_rerun()
+        st.session_state["reload"] = not st.session_state.get("reload", False)
+        st.stop()
 
 # =========================
 # Toggle sektioner
@@ -157,23 +158,21 @@ for cat_name, pos in categories:
         with col1:
             if st.button("⬆", key=f"up_{cat_name}"):
                 if pos>0:
-                    c.execute("UPDATE categories SET position=? WHERE month=? AND position=?",
-                              (pos-1, month, pos-1))
-                    c.execute("UPDATE categories SET position=? WHERE month=? AND name=?",
-                              (pos-1, month, cat_name))
+                    c.execute("UPDATE categories SET position=? WHERE month=? AND position=?", (pos-1, month, pos-1))
+                    c.execute("UPDATE categories SET position=? WHERE month=? AND name=?", (pos, month, cat_name))
                     conn.commit()
-                    st.experimental_rerun()
+                    st.session_state["reload"] = not st.session_state.get("reload", False)
+                    st.stop()
         with col2:
             if st.button("⬇", key=f"down_{cat_name}"):
                 c.execute("SELECT MAX(position) FROM categories WHERE month=?", (month,))
                 max_pos = c.fetchone()[0]
                 if pos<max_pos:
-                    c.execute("UPDATE categories SET position=? WHERE month=? AND position=?",
-                              (pos+1, month, pos+1))
-                    c.execute("UPDATE categories SET position=? WHERE month=? AND name=?",
-                              (pos+1, month, cat_name))
+                    c.execute("UPDATE categories SET position=? WHERE month=? AND position=?", (pos+1, month, pos+1))
+                    c.execute("UPDATE categories SET position=? WHERE month=? AND name=?", (pos, month, cat_name))
                     conn.commit()
-                    st.experimental_rerun()
+                    st.session_state["reload"] = not st.session_state.get("reload", False)
+                    st.stop()
 
         # Lägg till underrubrik
         new_item = st.text_input(f"Lägg till underrubrik {cat_name}", key=f"newitem_{cat_name}")
@@ -183,7 +182,8 @@ for cat_name, pos in categories:
                     c.execute("""INSERT INTO items (month, category, name, budget, actual, date)
                                  VALUES (?,?,?,?,?,?)""", (m, cat_name, new_item, 0,0, datetime.date.today()))
                 conn.commit()
-                st.experimental_rerun()
+                st.session_state["reload"] = not st.session_state.get("reload", False)
+                st.stop()
 
         # Visa underrubriker
         c.execute("SELECT item_id, name, budget, actual FROM items WHERE month=? AND category=? ORDER BY item_id", (month, cat_name))
@@ -201,7 +201,8 @@ for cat_name, pos in categories:
                     for m in months:
                         c.execute("DELETE FROM items WHERE month=? AND item_id=?", (m, item_id))
                     conn.commit()
-                    st.experimental_rerun()
+                    st.session_state["reload"] = not st.session_state.get("reload", False)
+                    st.stop()
 
 # =========================
 # Huvudpanel – Anteckningar
