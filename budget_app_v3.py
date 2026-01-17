@@ -31,7 +31,6 @@ def colored_input(label, value, key, css):
 # Login
 # =========================
 users = {"admin": "1234"}
-
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
@@ -94,7 +93,18 @@ months = [
     "Januari","Februari","Mars","April","Maj","Juni",
     "Juli","Augusti","September","Oktober","November","December"
 ]
-month = st.selectbox("📅 Välj månad", months)
+
+# Interaktiv månad med knappar
+if "month" not in st.session_state:
+    st.session_state["month"] = "Januari"
+
+st.subheader("📅 Välj månad")
+month_cols = st.columns(len(months))
+for idx, m in enumerate(months):
+    if month_cols[idx].button(m):
+        st.session_state["month"] = m
+month = st.session_state["month"]
+st.markdown(f"**Vald månad:** {month}")
 
 # =========================
 # Anteckningar
@@ -112,7 +122,6 @@ if new_note != note_text:
 # =========================
 st.divider()
 st.subheader("➕ Hantera rubriker")
-
 c.execute("SELECT name FROM categories WHERE month=? ORDER BY cat_id", (month,))
 rows = c.fetchall()
 categories = [r[0] for r in rows] if rows else []
@@ -228,10 +237,10 @@ chart = alt.Chart(df_melted).mark_bar().encode(
 st.altair_chart(chart, use_container_width=False)
 
 # =========================
-# Årsöversikt – alla månader
+# Årsöversikt – interaktiv
 # =========================
 st.divider()
-st.subheader("📅 Årsöversikt")
+st.subheader("📅 Årsöversikt – klicka på månad för att hoppa dit")
 
 summary_list = []
 for m in months:
@@ -262,10 +271,21 @@ df_melted_year = df_year.melt(id_vars="Månad",
                                           "Kvar_Budget","Kvar_Faktiskt"],
                               var_name="Typ", value_name="€")
 
+# Altair chart
+click = alt.selection_single(fields=['Månad'], on='click')
 chart_year = alt.Chart(df_melted_year).mark_bar().encode(
     x=alt.X('Månad:N', title="Månad"),
     y=alt.Y('€:Q', title="Belopp (€)"),
     color=alt.Color('Typ:N', scale=alt.Scale(range=['#87CEFA','#32CD32','#FFB347','#FF6347','#87CEFA','#32CD32'])),
     tooltip=['Månad','Typ','€']
-).properties(width='stretch', height=400)
+).add_selection(click).properties(width='stretch', height=400)
+
 st.altair_chart(chart_year, use_container_width=False)
+
+# Klick på månad uppdaterar session_state
+if click:
+    sel = chart_year.selection
+    if sel:
+        st.session_state["month"] = sel.get('Månad')
+        st.session_state["reload"] = not st.session_state.get("reload", False)
+        st.stop()
