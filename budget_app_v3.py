@@ -122,7 +122,8 @@ if st.button("Lägg till rubrik"):
     if new_cat and new_cat not in categories:
         c.execute("INSERT INTO categories (month, name) VALUES (?,?)", (month,new_cat))
         conn.commit()
-        st.experimental_rerun()
+        st.session_state["reload"] = not st.session_state.get("reload", False)
+        st.stop()
 
 # =========================
 # Dropdown-rubriker på rad
@@ -144,7 +145,8 @@ for idx, cat in enumerate(categories):
             c.execute("UPDATE categories SET name=? WHERE month=? AND name=?", (new_name, month, cat))
             c.execute("UPDATE items SET category=? WHERE month=? AND category=?", (new_name, month, cat))
             conn.commit()
-            st.experimental_rerun()
+            st.session_state["reload"] = not st.session_state.get("reload", False)
+            st.stop()
 
         with st.expander(f"{cat}"):
             new_item = st.text_input("Ny underrubrik", key=f"add_{cat}")
@@ -153,7 +155,8 @@ for idx, cat in enumerate(categories):
                     c.execute("INSERT INTO items (month, category, name, budget, actual) VALUES (?,?,?,?,?)",
                               (month, cat, new_item, 0.0, 0.0))
                     conn.commit()
-                    st.experimental_rerun()
+                    st.session_state["reload"] = not st.session_state.get("reload", False)
+                    st.stop()
 
             c.execute("SELECT name,budget,actual FROM items WHERE month=? AND category=? ORDER BY item_id", (month,cat))
             items = c.fetchall()
@@ -221,8 +224,8 @@ chart = alt.Chart(df_melted).mark_bar().encode(
     y=alt.Y('€:Q', title="Belopp (€)"),
     color=alt.Color('Typ:N', scale=alt.Scale(range=['#87CEFA','#FFB347'])),
     tooltip=['Kategori','Typ','€']
-).properties(width=600, height=400)
-st.altair_chart(chart, use_container_width=True)
+).properties(width='stretch', height=400)
+st.altair_chart(chart, use_container_width=False)
 
 # =========================
 # Årsöversikt – alla månader
@@ -264,5 +267,5 @@ chart_year = alt.Chart(df_melted_year).mark_bar().encode(
     y=alt.Y('€:Q', title="Belopp (€)"),
     color=alt.Color('Typ:N', scale=alt.Scale(range=['#87CEFA','#32CD32','#FFB347','#FF6347','#87CEFA','#32CD32'])),
     tooltip=['Månad','Typ','€']
-).properties(width=800, height=400)
-st.altair_chart(chart_year, use_container_width=True)
+).properties(width='stretch', height=400)
+st.altair_chart(chart_year, use_container_width=False)
