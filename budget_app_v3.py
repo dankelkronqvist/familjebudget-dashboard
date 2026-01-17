@@ -229,12 +229,8 @@ for cat_name, pos in categories:
                                   (b_new, m, cat_name, item_name))
                 conn.commit()
 
-            # Färgkod: inkomster gröna om faktisk ≥ budget, utgifter röd om faktisk > budget
-            if cat_name.lower() == "inkomster":
-                row_class = "green-row" if a_new >= b_new else "red-row"
-            else:
-                row_class = "green-row" if a_new <= b_new else "red-row"
-
+            # Färgkod
+            row_class = "green-row" if a_new <= b_new else "red-row"
             st.markdown(f'<div class="{row_class}">{item_name} – Budget: {b_new} | Faktiskt: {a_new} | Datum: {d_new}</div>', unsafe_allow_html=True)
 
             if cat_name.lower() == "inkomster":
