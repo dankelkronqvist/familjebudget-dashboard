@@ -47,9 +47,8 @@ if not st.session_state.logged_in:
             st.error("Fel uppgifter")
     st.stop()
 
-# Logout
-col_l, col_r = st.columns([6,1])
-with col_r:
+# Logout-knapp
+with st.sidebar:
     if st.button("Logga ut"):
         st.session_state.clear()
         st.stop()
@@ -61,7 +60,7 @@ DB_FILE = "budget.db"
 conn = sqlite3.connect(DB_FILE, check_same_thread=False)
 c = conn.cursor()
 
-# Skapa tabeller om de inte finns
+# Skapa tabeller
 c.execute("""
 CREATE TABLE IF NOT EXISTS categories (
     month TEXT,
@@ -86,49 +85,37 @@ CREATE TABLE IF NOT EXISTS notes (
     content TEXT
 )
 """)
+c.execute("""
+CREATE TABLE IF NOT EXISTS meals (
+    month TEXT,
+    day TEXT,
+    meal TEXT,
+    PRIMARY KEY(month, day)
+)
+""")
 conn.commit()
 
 # =========================
-# Månad
+# Månad och rubriker i sidebar
 # =========================
 months = [
     "Januari","Februari","Mars","April","Maj","Juni",
     "Juli","Augusti","September","Oktober","November","December"
 ]
 
-if "month" not in st.session_state:
-    st.session_state["month"] = "Januari"
-
-st.subheader("📅 Välj månad")
-month_cols = st.columns(len(months))
-for idx, m in enumerate(months):
-    if month_cols[idx].button(m):
+st.sidebar.subheader("📅 Välj månad")
+for m in months:
+    if st.sidebar.button(m):
         st.session_state["month"] = m
-month = st.session_state["month"]
-st.markdown(f"**Vald månad:** {month}")
+month = st.session_state.get("month", "Januari")
+st.sidebar.markdown(f"**Vald månad:** {month}")
 
-# =========================
-# Anteckningar
-# =========================
-c.execute("SELECT content FROM notes WHERE month=?", (month,))
-row = c.fetchone()
-note_text = row[0] if row else ""
-new_note = st.text_area("📝 Anteckningar", value=note_text, height=120)
-if new_note != note_text:
-    c.execute("INSERT OR REPLACE INTO notes (month, content) VALUES (?,?)", (month, new_note))
-    conn.commit()
-
-# =========================
-# Hantera rubriker
-# =========================
-st.divider()
-st.subheader("➕ Hantera rubriker")
-c.execute("SELECT name FROM categories WHERE month=? ORDER BY cat_id", (month,))
-rows = c.fetchall()
-categories = [r[0] for r in rows] if rows else []
-
-new_cat = st.text_input("Ny rubrik")
-if st.button("Lägg till rubrik"):
+# Lägg till rubrik
+st.sidebar.subheader("➕ Lägg till rubrik")
+new_cat = st.sidebar.text_input("Ny rubrik")
+if st.sidebar.button("Lägg till rubrik"):
+    c.execute("SELECT name FROM categories WHERE month=?", (month,))
+    categories = [r[0] for r in c.fetchall()]
     if new_cat and new_cat not in categories:
         c.execute("INSERT INTO categories (month, name) VALUES (?,?)", (month,new_cat))
         conn.commit()
@@ -136,7 +123,36 @@ if st.button("Lägg till rubrik"):
         st.stop()
 
 # =========================
-# Dashboard – rubriker på rad som dropdowns
+# Toggle för att visa sektioner
+# =========================
+st.sidebar.subheader("Visa / Dölj sektioner")
+show_cashflow = st.sidebar.checkbox("Kassaflöde", value=True)
+show_year = st.sidebar.checkbox("Årsöversikt", value=True)
+show_meals = st.sidebar.checkbox("Veckoplanering", value=True)
+show_notes = st.sidebar.checkbox("Anteckningar", value=True)
+
+# =========================
+# Anteckningar
+# =========================
+if show_notes:
+    st.subheader("📝 Anteckningar")
+    c.execute("SELECT content FROM notes WHERE month=?", (month,))
+    row = c.fetchone()
+    note_text = row[0] if row else ""
+    new_note = st.text_area("Anteckningar", value=note_text, height=120)
+    if new_note != note_text:
+        c.execute("INSERT OR REPLACE INTO notes (month, content) VALUES (?,?)", (month, new_note))
+        conn.commit()
+
+# =========================
+# Hämta rubriker
+# =========================
+c.execute("SELECT name FROM categories WHERE month=? ORDER BY cat_id", (month,))
+rows = c.fetchall()
+categories = [r[0] for r in rows] if rows else []
+
+# =========================
+# Dashboard med rubriker på rad
 # =========================
 if categories:
     cols = st.columns(len(categories))
@@ -220,64 +236,81 @@ col3.metric("💰 Kvar att använda / spara", f"€{total_income_actual - total_
             f"Budget: €{total_income_budget - total_cost_budget:.2f}")
 
 # =========================
-# Kassaflödesdiagram
+# Veckoplanering
 # =========================
-st.divider()
-st.subheader("💸 Kassaflöde per datum")
-c.execute("SELECT name, actual, date FROM items WHERE month=?", (month,))
-rows = c.fetchall()
-if rows:
-    df_cashflow = pd.DataFrame(rows, columns=["Beskrivning", "Belopp", "Datum"])
-    df_cashflow["Datum"] = pd.to_datetime(df_cashflow["Datum"])
-    df_cashflow["Saldo"] = df_cashflow["Belopp"].cumsum()
+if show_meals:
+    st.divider()
+    st.subheader("🥗 Veckoplanering")
+    days = ["Måndag","Tisdag","Onsdag","Torsdag","Fredag","Lördag","Söndag"]
+    for d in days:
+        c.execute("SELECT meal FROM meals WHERE month=? AND day=?", (month,d))
+        row = c.fetchone()
+        meal_text = row[0] if row else ""
+        new_meal = st.text_input(d, value=meal_text, key=f"meal_{d}")
+        if new_meal != meal_text:
+            c.execute("INSERT OR REPLACE INTO meals (month, day, meal) VALUES (?,?,?)", (month,d,new_meal))
+            conn.commit()
 
-    st.dataframe(df_cashflow)
-    chart_cashflow = alt.Chart(df_cashflow).mark_line(point=True).encode(
-        x=alt.X("Datum:T", title="Datum"),
-        y=alt.Y("Saldo:Q", title="Löpande saldo (€)"),
-        color=alt.condition(alt.datum.Saldo<0, alt.value("red"), alt.value("green")),
-        tooltip=["Datum","Beskrivning","Belopp","Saldo"]
+# =========================
+# Kassaflöde
+# =========================
+if show_cashflow:
+    st.divider()
+    st.subheader("💸 Kassaflöde per datum")
+    c.execute("SELECT name, actual, date FROM items WHERE month=?", (month,))
+    rows = c.fetchall()
+    if rows:
+        df_cashflow = pd.DataFrame(rows, columns=["Beskrivning", "Belopp", "Datum"])
+        df_cashflow["Datum"] = pd.to_datetime(df_cashflow["Datum"])
+        df_cashflow["Saldo"] = df_cashflow["Belopp"].cumsum()
+        st.dataframe(df_cashflow)
+
+        chart_cashflow = alt.Chart(df_cashflow).mark_line(point=True).encode(
+            x=alt.X("Datum:T", title="Datum"),
+            y=alt.Y("Saldo:Q", title="Löpande saldo (€)"),
+            color=alt.condition(alt.datum.Saldo<0, alt.value("red"), alt.value("green")),
+            tooltip=["Datum","Beskrivning","Belopp","Saldo"]
+        )
+        st.altair_chart(chart_cashflow, use_container_width=True)
+
+# =========================
+# Årsöversikt
+# =========================
+if show_year:
+    st.divider()
+    st.subheader("📅 Årsöversikt")
+    summary_list = []
+    for m in months:
+        c.execute("SELECT SUM(actual), SUM(budget) FROM items WHERE month=? AND category='Inkomster'", (m,))
+        income_row = c.fetchone()
+        income_actual = income_row[0] or 0
+        income_budget = income_row[1] or 0
+
+        c.execute("SELECT SUM(actual), SUM(budget) FROM items WHERE month=? AND category<>'Inkomster'", (m,))
+        cost_row = c.fetchone()
+        cost_actual = cost_row[0] or 0
+        cost_budget = cost_row[1] or 0
+
+        summary_list.append({
+            "Månad": m,
+            "Inkomster_Budget": income_budget,
+            "Inkomster_Faktiskt": income_actual,
+            "Kostnader_Budget": cost_budget,
+            "Kostnader_Faktiskt": cost_actual,
+            "Kvar_Budget": income_budget - cost_budget,
+            "Kvar_Faktiskt": income_actual - cost_actual
+        })
+
+    df_year = pd.DataFrame(summary_list)
+    df_melted_year = df_year.melt(id_vars="Månad",
+                                  value_vars=["Inkomster_Budget","Inkomster_Faktiskt",
+                                              "Kostnader_Budget","Kostnader_Faktiskt",
+                                              "Kvar_Budget","Kvar_Faktiskt"],
+                                  var_name="Typ", value_name="€")
+    chart_year = alt.Chart(df_melted_year).mark_bar().encode(
+        x=alt.X('Månad:N', title="Månad"),
+        y=alt.Y('€:Q', title="Belopp (€)"),
+        color=alt.Color('Typ:N', scale=alt.Scale(range=['#87CEFA','#32CD32','#FFB347','#FF6347','#87CEFA','#32CD32'])),
+        tooltip=['Månad','Typ','€']
     )
-    st.altair_chart(chart_cashflow, use_container_width=True)
-
-# =========================
-# Årsöversikt – alla månader
-# =========================
-st.divider()
-st.subheader("📅 Årsöversikt")
-summary_list = []
-for m in months:
-    c.execute("SELECT SUM(actual), SUM(budget) FROM items WHERE month=? AND category='Inkomster'", (m,))
-    income_row = c.fetchone()
-    income_actual = income_row[0] or 0
-    income_budget = income_row[1] or 0
-
-    c.execute("SELECT SUM(actual), SUM(budget) FROM items WHERE month=? AND category<>'Inkomster'", (m,))
-    cost_row = c.fetchone()
-    cost_actual = cost_row[0] or 0
-    cost_budget = cost_row[1] or 0
-
-    summary_list.append({
-        "Månad": m,
-        "Inkomster_Budget": income_budget,
-        "Inkomster_Faktiskt": income_actual,
-        "Kostnader_Budget": cost_budget,
-        "Kostnader_Faktiskt": cost_actual,
-        "Kvar_Budget": income_budget - cost_budget,
-        "Kvar_Faktiskt": income_actual - cost_actual
-    })
-
-df_year = pd.DataFrame(summary_list)
-df_melted_year = df_year.melt(id_vars="Månad",
-                              value_vars=["Inkomster_Budget","Inkomster_Faktiskt",
-                                          "Kostnader_Budget","Kostnader_Faktiskt",
-                                          "Kvar_Budget","Kvar_Faktiskt"],
-                              var_name="Typ", value_name="€")
-
-chart_year = alt.Chart(df_melted_year).mark_bar().encode(
-    x=alt.X('Månad:N', title="Månad"),
-    y=alt.Y('€:Q', title="Belopp (€)"),
-    color=alt.Color('Typ:N', scale=alt.Scale(range=['#87CEFA','#32CD32','#FFB347','#FF6347','#87CEFA','#32CD32'])),
-    tooltip=['Månad','Typ','€']
-)
-st.altair_chart(chart_year, use_container_width=True)
+    st.altair_chart(chart_year, use_container_width=True)
