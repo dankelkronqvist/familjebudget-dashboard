@@ -1,42 +1,26 @@
 import streamlit as st
-import pandas as pd
 
 # =========================
-# CSS – färger på inputs
+# CSS
 # =========================
 st.markdown("""
 <style>
-div[data-testid="stNumberInput"] input.budget {
-    background-color: #eeeeee !important;
-}
-div[data-testid="stNumberInput"] input.actual {
-    background-color: #fff3b0 !important;
-}
-div[data-testid="stNumberInput"] input {
-    border-radius: 6px;
-    font-weight: 500;
-}
+input.budget { background-color: #eeeeee !important; }
+input.actual { background-color: #fff3b0 !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# =========================
-# Hjälpfunktion för färgade inputs
-# =========================
-def colored_number_input(label, value, key, css_class):
+def colored_input(label, value, key, css):
     st.number_input(label, value=value, key=key)
-    st.markdown(
-        f"""
-        <script>
-        const inputs = window.parent.document.querySelectorAll('input');
-        inputs.forEach(el => {{
-            if (el.getAttribute('aria-label') === "{label}") {{
-                el.classList.add("{css_class}");
-            }}
-        }});
-        </script>
-        """,
-        unsafe_allow_html=True
-    )
+    st.markdown(f"""
+    <script>
+    document.querySelectorAll('input').forEach(el => {{
+        if (el.getAttribute('aria-label') === "{label}") {{
+            el.classList.add("{css}");
+        }}
+    }});
+    </script>
+    """, unsafe_allow_html=True)
 
 # =========================
 # Login
@@ -48,130 +32,113 @@ if "logged_in" not in st.session_state:
 
 if not st.session_state.logged_in:
     st.title("🔐 Logga in")
-    user = st.text_input("Användarnamn")
-    pw = st.text_input("Lösenord", type="password")
+    u = st.text_input("Användarnamn")
+    p = st.text_input("Lösenord", type="password")
     if st.button("Logga in"):
-        if user in users and pw == users[user]:
+        if u in users and p == users[u]:
             st.session_state.logged_in = True
             st.stop()
         else:
             st.error("Fel uppgifter")
     st.stop()
 
-# =========================
-# Logga ut
-# =========================
-col_l, col_r = st.columns([6,1])
-with col_r:
+# Logout
+col1, col2 = st.columns([6,1])
+with col2:
     if st.button("Logga ut"):
         st.session_state.clear()
         st.stop()
 
 # =========================
-# Data-struktur
+# Init data
 # =========================
 months = [
     "Januari","Februari","Mars","April","Maj","Juni",
     "Juli","Augusti","September","Oktober","November","December"
 ]
 
-categories = {
-    "Inkomster": ["Lön 1", "Lön 2"],
-    "Fasta kostnader": ["El", "Internet"],
-    "Rörliga utgifter": ["Mat", "Utemat"],
-    "Sparande": ["Buffert"]
-}
+if "budget" not in st.session_state:
+    st.session_state.budget = {}
 
-if "data" not in st.session_state:
-    st.session_state.data = {}
+month = st.selectbox("📅 Månad", months)
 
-month = st.selectbox("📅 Välj månad", months)
-
-if month not in st.session_state.data:
-    st.session_state.data[month] = {
+if month not in st.session_state.budget:
+    st.session_state.budget[month] = {
         "notes": "",
-        "categories": {}
-    }
-    for c, items in categories.items():
-        st.session_state.data[month]["categories"][c] = {
-            i: {"budget": 0.0, "actual": 0.0} for i in items
+        "categories": {
+            "Inkomster": {},
+            "Fasta kostnader": {}
         }
+    }
 
-data = st.session_state.data[month]["categories"]
+data = st.session_state.budget[month]["categories"]
 
 # =========================
-# Anteckningar (syns alltid)
+# Anteckningar
 # =========================
 st.subheader("📝 Anteckningar")
-st.session_state.data[month]["notes"] = st.text_area(
+st.session_state.budget[month]["notes"] = st.text_area(
     "Anteckningar",
-    value=st.session_state.data[month]["notes"],
+    value=st.session_state.budget[month]["notes"],
     height=120
 )
 
 # =========================
-# Dropdown-rubriker i en rad
+# Lägg till rubrik
 # =========================
 st.divider()
-st.subheader("📂 Budget")
+st.subheader("➕ Hantera rubriker")
 
+new_cat = st.text_input("Ny rubrik")
+if st.button("Lägg till rubrik"):
+    if new_cat and new_cat not in data:
+        data[new_cat] = {}
+
+# =========================
+# Dropdown-rubriker på en rad
+# =========================
 cols = st.columns(len(data))
 
-total_income_budget = 0
-total_income_actual = 0
-total_cost_budget = 0
-total_cost_actual = 0
+total_income = total_cost = 0
 
-for idx, (category, items) in enumerate(data.items()):
+for idx, (cat, items) in enumerate(list(data.items())):
     with cols[idx]:
-        with st.expander(category, expanded=False):
-            cat_budget = 0
-            cat_actual = 0
+        cat_budget = sum(v["budget"] for v in items.values()) if items else 0
+        cat_actual = sum(v["actual"] for v in items.values()) if items else 0
+
+        with st.expander(f"{cat} (€{cat_actual:.2f})"):
+            # Byt namn
+            new_name = st.text_input("Byt namn", value=cat, key=f"rename_{cat}")
+            if new_name != cat:
+                data[new_name] = data.pop(cat)
+                st.stop()
+
+            # Lägg till underrubrik
+            new_item = st.text_input("Ny underrubrik", key=f"add_{cat}")
+            if st.button("Lägg till", key=f"btn_{cat}"):
+                if new_item:
+                    items[new_item] = {"budget": 0.0, "actual": 0.0}
 
             for item, vals in items.items():
-                colored_number_input(
-                    f"{item} – Budget (€)",
-                    vals["budget"],
-                    f"{month}_{category}_{item}_B",
-                    "budget"
-                )
-                colored_number_input(
-                    f"{item} – Faktiskt (€)",
-                    vals["actual"],
-                    f"{month}_{category}_{item}_A",
-                    "actual"
-                )
-
-                vals["budget"] = st.session_state[f"{month}_{category}_{item}_B"]
-                vals["actual"] = st.session_state[f"{month}_{category}_{item}_A"]
-
-                cat_budget += vals["budget"]
-                cat_actual += vals["actual"]
+                colored_input(f"{item} Budget (€)", vals["budget"], f"{month}_{cat}_{item}_b", "budget")
+                colored_input(f"{item} Faktiskt (€)", vals["actual"], f"{month}_{cat}_{item}_a", "actual")
+                vals["budget"] = st.session_state[f"{month}_{cat}_{item}_b"]
+                vals["actual"] = st.session_state[f"{month}_{cat}_{item}_a"]
 
             st.markdown(f"**Summa budget:** €{cat_budget:.2f}")
             st.markdown(f"**Summa faktiskt:** €{cat_actual:.2f}")
 
-            if category == "Inkomster":
-                total_income_budget += cat_budget
-                total_income_actual += cat_actual
+            if cat == "Inkomster":
+                total_income += cat_actual
             else:
-                total_cost_budget += cat_budget
-                total_cost_actual += cat_actual
+                total_cost += cat_actual
 
 # =========================
 # Sammanfattning
 # =========================
 st.divider()
 st.subheader("📊 Sammanfattning")
-
-st.metric("Totala inkomster (Budget)", f"€{total_income_budget:.2f}")
-st.metric("Totala inkomster (Faktiskt)", f"€{total_income_actual:.2f}")
-
-st.metric("Totala kostnader (Budget)", f"€{total_cost_budget:.2f}")
-st.metric("Totala kostnader (Faktiskt)", f"€{total_cost_actual:.2f}")
-
-st.metric(
-    "💰 Kvar att använda / spara (Faktiskt)",
-    f"€{(total_income_actual - total_cost_actual):.2f}"
-)
+st.metric("Totala inkomster", f"€{total_income:.2f}")
+st.metric("Totala kostnader", f"€{total_cost:.2f}")
+st.metric("💰 Kvar att använda / spara", f"€{total_income - total_cost:.2f}")
 
