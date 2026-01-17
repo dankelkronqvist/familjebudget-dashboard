@@ -185,7 +185,7 @@ for cat_name, pos in categories:
                 st.stop()
 
 # =========================
-# Huvudpanel – Anteckningar + Rubriker
+# Huvudpanel – Anteckningar
 # =========================
 if show_notes:
     st.subheader("📝 Anteckningar")
@@ -198,7 +198,7 @@ if show_notes:
         conn.commit()
 
 # =========================
-# Rubriker och underrubriker i huvudpanelen
+# Rubriker & underrubriker i huvudpanelen
 # =========================
 total_income_budget = 0
 total_income_actual = 0
@@ -221,18 +221,20 @@ for cat_name, pos in categories:
 
             # Spara ändringar och kopiera budget till alla månader
             if b_new != budget_val or a_new != actual_val or d_new != date_val:
-                # Uppdatera aktuell månad
                 c.execute("""UPDATE items SET budget=?, actual=?, date=? WHERE month=? AND item_id=?""",
                           (b_new, a_new, d_new, month, item_id))
-                # Kopiera budget till alla månader
                 for m in months:
                     if m != month:
                         c.execute("""UPDATE items SET budget=? WHERE month=? AND category=? AND name=?""",
                                   (b_new, m, cat_name, item_name))
                 conn.commit()
 
-            # Färgkod
-            row_class = "green-row" if a_new <= b_new else "red-row"
+            # Färgkod: inkomster gröna om faktisk ≥ budget, utgifter röd om faktisk > budget
+            if cat_name.lower() == "inkomster":
+                row_class = "green-row" if a_new >= b_new else "red-row"
+            else:
+                row_class = "green-row" if a_new <= b_new else "red-row"
+
             st.markdown(f'<div class="{row_class}">{item_name} – Budget: {b_new} | Faktiskt: {a_new} | Datum: {d_new}</div>', unsafe_allow_html=True)
 
             if cat_name.lower() == "inkomster":
@@ -241,6 +243,36 @@ for cat_name, pos in categories:
             else:
                 total_cost_budget += b_new
                 total_cost_actual += a_new
+
+# =========================
+# Veckoplanering
+# =========================
+if show_meals:
+    st.subheader("📅 Veckoplanering")
+    days = ["Måndag","Tisdag","Onsdag","Torsdag","Fredag","Lördag","Söndag"]
+    for day in days:
+        c.execute("SELECT meal FROM meals WHERE month=? AND day=?", (month, day))
+        row = c.fetchone()
+        meal_text = row[0] if row else ""
+        new_meal = st.text_input(f"{day}", value=meal_text, key=f"meal_{day}")
+        if new_meal != meal_text:
+            c.execute("INSERT OR REPLACE INTO meals (month, day, meal) VALUES (?,?,?)", (month, day, new_meal))
+            conn.commit()
+
+# =========================
+# Kalender
+# =========================
+if show_calendar:
+    st.subheader("📆 Kalender")
+    today = datetime.date.today()
+    cal_date = st.date_input("Välj datum", value=today, key="calendar_date")
+    c.execute("SELECT description FROM events WHERE month=? AND date=?", (month, cal_date))
+    row = c.fetchone()
+    desc_text = row[0] if row else ""
+    new_desc = st.text_input("Händelse", value=desc_text, key=f"event_{cal_date}")
+    if new_desc != desc_text:
+        c.execute("INSERT OR REPLACE INTO events (month, date, description) VALUES (?,?,?)", (month, cal_date, new_desc))
+        conn.commit()
 
 # =========================
 # Sammanfattning
