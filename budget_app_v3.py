@@ -1,6 +1,7 @@
 import streamlit as st
 import sqlite3
-from sqlite3 import Error
+import pandas as pd
+import altair as alt
 
 # =========================
 # CSS – färger
@@ -9,6 +10,8 @@ st.markdown("""
 <style>
 input.budget { background-color: #eeeeee !important; }
 input.actual { background-color: #fff3b0 !important; }
+.red-row { background-color: #ffcccc !important; padding: 5px; border-radius:5px; }
+.green-row { background-color: #ccffcc !important; padding: 5px; border-radius:5px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -55,16 +58,7 @@ with col_r:
 # SQLite Setup
 # =========================
 DB_FILE = "budget.db"
-
-def create_connection(db_file):
-    conn = None
-    try:
-        conn = sqlite3.connect(db_file, check_same_thread=False)
-    except Error as e:
-        st.error(e)
-    return conn
-
-conn = create_connection(DB_FILE)
+conn = sqlite3.connect(DB_FILE, check_same_thread=False)
 c = conn.cursor()
 
 # Skapa tabeller om de inte finns
@@ -94,13 +88,12 @@ CREATE TABLE IF NOT EXISTS notes (
 conn.commit()
 
 # =========================
-# Månadsval
+# Månad
 # =========================
 months = [
     "Januari","Februari","Mars","April","Maj","Juni",
     "Juli","Augusti","September","Oktober","November","December"
 ]
-
 month = st.selectbox("📅 Välj månad", months)
 
 # =========================
@@ -120,12 +113,10 @@ if new_note != note_text:
 st.divider()
 st.subheader("➕ Hantera rubriker")
 
-# Hämta rubriker från DB
 c.execute("SELECT name FROM categories WHERE month=? ORDER BY cat_id", (month,))
 rows = c.fetchall()
 categories = [r[0] for r in rows] if rows else []
 
-# Lägg till rubrik
 new_cat = st.text_input("Ny rubrik")
 if st.button("Lägg till rubrik"):
     if new_cat and new_cat not in categories:
@@ -141,12 +132,13 @@ if categories:
 else:
     cols = []
 
-total_income = 0
-total_cost = 0
+total_income_budget = 0
+total_income_actual = 0
+total_cost_budget = 0
+total_cost_actual = 0
 
 for idx, cat in enumerate(categories):
     with cols[idx]:
-        # Byt namn
         new_name = st.text_input("Byt namn på rubrik", value=cat, key=f"rename_{cat}")
         if new_name != cat and new_name:
             c.execute("UPDATE categories SET name=? WHERE month=? AND name=?", (new_name, month, cat))
@@ -155,8 +147,6 @@ for idx, cat in enumerate(categories):
             st.experimental_rerun()
 
         with st.expander(f"{cat}"):
-
-            # Lägg till underrubrik
             new_item = st.text_input("Ny underrubrik", key=f"add_{cat}")
             if st.button("Lägg till underrubrik", key=f"btn_{cat}"):
                 if new_item:
@@ -165,7 +155,6 @@ for idx, cat in enumerate(categories):
                     conn.commit()
                     st.experimental_rerun()
 
-            # Hämta alla items
             c.execute("SELECT name,budget,actual FROM items WHERE month=? AND category=? ORDER BY item_id", (month,cat))
             items = c.fetchall()
 
@@ -173,36 +162,107 @@ for idx, cat in enumerate(categories):
             cat_actual = 0
 
             for item_name, budget_val, actual_val in items:
-                col_b, col_a = st.columns(2)
-                with col_b:
-                    colored_input(f"{item_name} – Budget (€)", budget_val, f"{month}_{cat}_{item_name}_b", "budget")
-                with col_a:
-                    colored_input(f"{item_name} – Faktiskt (€)", actual_val, f"{month}_{cat}_{item_name}_a", "actual")
+                row_class = "green-row" if actual_val <= budget_val else "red-row"
 
-                # Spara direkt i DB om ändrat
-                b_new = st.session_state[f"{month}_{cat}_{item_name}_b"]
-                a_new = st.session_state[f"{month}_{cat}_{item_name}_a"]
-                if b_new != budget_val or a_new != actual_val:
-                    c.execute("UPDATE items SET budget=?, actual=? WHERE month=? AND category=? AND name=?",
-                              (b_new, a_new, month, cat, item_name))
-                    conn.commit()
+                with st.container():
+                    st.markdown(f'<div class="{row_class}">', unsafe_allow_html=True)
+                    col_b, col_a = st.columns(2)
+                    with col_b:
+                        colored_input(f"{item_name} – Budget (€)", budget_val, f"{month}_{cat}_{item_name}_b", "budget")
+                    with col_a:
+                        colored_input(f"{item_name} – Faktiskt (€)", actual_val, f"{month}_{cat}_{item_name}_a", "actual")
+                    st.markdown("</div>", unsafe_allow_html=True)
 
-                cat_budget += b_new
-                cat_actual += a_new
+                    b_new = st.session_state[f"{month}_{cat}_{item_name}_b"]
+                    a_new = st.session_state[f"{month}_{cat}_{item_name}_a"]
+                    if b_new != budget_val or a_new != actual_val:
+                        c.execute("UPDATE items SET budget=?, actual=? WHERE month=? AND category=? AND name=?",
+                                  (b_new, a_new, month, cat, item_name))
+                        conn.commit()
+
+                    cat_budget += b_new
+                    cat_actual += a_new
 
             st.markdown(f"**Summa budget:** €{cat_budget:.2f}")
             st.markdown(f"**Summa faktiskt:** €{cat_actual:.2f}")
 
-            if cat.lower() in ["inkomster"]:
-                total_income += cat_actual
+            if cat.lower() == "inkomster":
+                total_income_budget += cat_budget
+                total_income_actual += cat_actual
             else:
-                total_cost += cat_actual
+                total_cost_budget += cat_budget
+                total_cost_actual += cat_actual
 
 # =========================
 # Sammanfattning
 # =========================
 st.divider()
 st.subheader("📊 Sammanfattning")
-st.metric("Totala inkomster", f"€{total_income:.2f}")
-st.metric("Totala kostnader", f"€{total_cost:.2f}")
-st.metric("💰 Kvar att använda / spara", f"€{total_income - total_cost:.2f}")
+col1, col2, col3 = st.columns(3)
+col1.metric("Totala inkomster", f"€{total_income_actual:.2f}", f"Budget: €{total_income_budget:.2f}")
+col2.metric("Totala kostnader", f"€{total_cost_actual:.2f}", f"Budget: €{total_cost_budget:.2f}")
+col3.metric("💰 Kvar att använda / spara", f"€{total_income_actual - total_cost_actual:.2f}",
+            f"Budget: €{total_income_budget - total_cost_budget:.2f}")
+
+# =========================
+# Diagram – Totala per månad
+# =========================
+st.divider()
+st.subheader("📈 Diagram: Budget vs Faktiskt per månad")
+
+df_chart = pd.DataFrame({
+    "Kategori": ["Inkomster", "Kostnader", "Kvar att spara"],
+    "Budget": [total_income_budget, total_cost_budget, total_income_budget - total_cost_budget],
+    "Faktiskt": [total_income_actual, total_cost_actual, total_income_actual - total_cost_actual]
+})
+df_melted = df_chart.melt(id_vars="Kategori", var_name="Typ", value_name="€")
+chart = alt.Chart(df_melted).mark_bar().encode(
+    x=alt.X('Kategori:N', title=""),
+    y=alt.Y('€:Q', title="Belopp (€)"),
+    color=alt.Color('Typ:N', scale=alt.Scale(range=['#87CEFA','#FFB347'])),
+    tooltip=['Kategori','Typ','€']
+).properties(width=600, height=400)
+st.altair_chart(chart, use_container_width=True)
+
+# =========================
+# Årsöversikt – alla månader
+# =========================
+st.divider()
+st.subheader("📅 Årsöversikt")
+
+summary_list = []
+for m in months:
+    c.execute("SELECT SUM(actual), SUM(budget) FROM items WHERE month=? AND category='Inkomster'", (m,))
+    income_row = c.fetchone()
+    income_actual = income_row[0] or 0
+    income_budget = income_row[1] or 0
+
+    c.execute("SELECT SUM(actual), SUM(budget) FROM items WHERE month=? AND category<>'Inkomster'", (m,))
+    cost_row = c.fetchone()
+    cost_actual = cost_row[0] or 0
+    cost_budget = cost_row[1] or 0
+
+    summary_list.append({
+        "Månad": m,
+        "Inkomster_Budget": income_budget,
+        "Inkomster_Faktiskt": income_actual,
+        "Kostnader_Budget": cost_budget,
+        "Kostnader_Faktiskt": cost_actual,
+        "Kvar_Budget": income_budget - cost_budget,
+        "Kvar_Faktiskt": income_actual - cost_actual
+    })
+
+df_year = pd.DataFrame(summary_list)
+df_melted_year = df_year.melt(id_vars="Månad",
+                              value_vars=["Inkomster_Budget","Inkomster_Faktiskt",
+                                          "Kostnader_Budget","Kostnader_Faktiskt",
+                                          "Kvar_Budget","Kvar_Faktiskt"],
+                              var_name="Typ", value_name="€")
+
+chart_year = alt.Chart(df_melted_year).mark_bar().encode(
+    x=alt.X('Månad:N', title="Månad"),
+    y=alt.Y('€:Q', title="Belopp (€)"),
+    color=alt.Color('Typ:N', scale=alt.Scale(range=['#87CEFA','#32CD32','#FFB347','#FF6347','#87CEFA','#32CD32'])),
+    tooltip=['Månad','Typ','€']
+).properties(width=800, height=400)
+st.altair_chart(chart_year, use_container_width=True)
