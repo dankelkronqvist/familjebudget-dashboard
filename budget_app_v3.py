@@ -2,6 +2,7 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 import altair as alt
+import datetime
 
 # =========================
 # CSS – färger
@@ -60,7 +61,6 @@ DB_FILE = "budget.db"
 conn = sqlite3.connect(DB_FILE, check_same_thread=False)
 c = conn.cursor()
 
-# Skapa tabeller om de inte finns
 c.execute("""
 CREATE TABLE IF NOT EXISTS categories (
     month TEXT,
@@ -75,7 +75,8 @@ CREATE TABLE IF NOT EXISTS items (
     category TEXT,
     name TEXT,
     budget REAL,
-    actual REAL
+    actual REAL,
+    date DATE
 )
 """)
 c.execute("""
@@ -94,7 +95,6 @@ months = [
     "Juli","Augusti","September","Oktober","November","December"
 ]
 
-# Interaktiv månad med knappar
 if "month" not in st.session_state:
     st.session_state["month"] = "Januari"
 
@@ -131,11 +131,10 @@ if st.button("Lägg till rubrik"):
     if new_cat and new_cat not in categories:
         c.execute("INSERT INTO categories (month, name) VALUES (?,?)", (month,new_cat))
         conn.commit()
-        st.session_state["reload"] = not st.session_state.get("reload", False)
-        st.stop()
+        st.experimental_rerun()
 
 # =========================
-# Dropdown-rubriker på rad
+# Dashboard – rubriker på rad
 # =========================
 if categories:
     cols = st.columns(len(categories))
@@ -154,42 +153,42 @@ for idx, cat in enumerate(categories):
             c.execute("UPDATE categories SET name=? WHERE month=? AND name=?", (new_name, month, cat))
             c.execute("UPDATE items SET category=? WHERE month=? AND category=?", (new_name, month, cat))
             conn.commit()
-            st.session_state["reload"] = not st.session_state.get("reload", False)
-            st.stop()
+            st.experimental_rerun()
 
         with st.expander(f"{cat}"):
             new_item = st.text_input("Ny underrubrik", key=f"add_{cat}")
+            new_date = st.date_input("Datum", value=datetime.date.today(), key=f"date_{cat}")
             if st.button("Lägg till underrubrik", key=f"btn_{cat}"):
                 if new_item:
-                    c.execute("INSERT INTO items (month, category, name, budget, actual) VALUES (?,?,?,?,?)",
-                              (month, cat, new_item, 0.0, 0.0))
+                    c.execute("""
+                        INSERT INTO items (month, category, name, budget, actual, date)
+                        VALUES (?,?,?,?,?,?)
+                    """, (month, cat, new_item, 0.0, 0.0, new_date))
                     conn.commit()
-                    st.session_state["reload"] = not st.session_state.get("reload", False)
-                    st.stop()
+                    st.experimental_rerun()
 
-            c.execute("SELECT name,budget,actual FROM items WHERE month=? AND category=? ORDER BY item_id", (month,cat))
+            c.execute("SELECT item_id, name,budget,actual,date FROM items WHERE month=? AND category=? ORDER BY item_id", (month,cat))
             items = c.fetchall()
 
             cat_budget = 0
             cat_actual = 0
 
-            for item_name, budget_val, actual_val in items:
+            for item_id, item_name, budget_val, actual_val, item_date in items:
                 row_class = "green-row" if actual_val <= budget_val else "red-row"
-
                 with st.container():
                     st.markdown(f'<div class="{row_class}">', unsafe_allow_html=True)
                     col_b, col_a = st.columns(2)
                     with col_b:
-                        colored_input(f"{item_name} – Budget (€)", budget_val, f"{month}_{cat}_{item_name}_b", "budget")
+                        colored_input(f"{item_name} – Budget (€)", budget_val, f"{month}_{cat}_{item_id}_b", "budget")
                     with col_a:
-                        colored_input(f"{item_name} – Faktiskt (€)", actual_val, f"{month}_{cat}_{item_name}_a", "actual")
+                        colored_input(f"{item_name} – Faktiskt (€)", actual_val, f"{month}_{cat}_{item_id}_a", "actual")
                     st.markdown("</div>", unsafe_allow_html=True)
 
-                    b_new = st.session_state[f"{month}_{cat}_{item_name}_b"]
-                    a_new = st.session_state[f"{month}_{cat}_{item_name}_a"]
+                    b_new = st.session_state[f"{month}_{cat}_{item_id}_b"]
+                    a_new = st.session_state[f"{month}_{cat}_{item_id}_a"]
                     if b_new != budget_val or a_new != actual_val:
-                        c.execute("UPDATE items SET budget=?, actual=? WHERE month=? AND category=? AND name=?",
-                                  (b_new, a_new, month, cat, item_name))
+                        c.execute("UPDATE items SET budget=?, actual=? WHERE item_id=?",
+                                  (b_new, a_new, item_id))
                         conn.commit()
 
                     cat_budget += b_new
@@ -217,31 +216,31 @@ col3.metric("💰 Kvar att använda / spara", f"€{total_income_actual - total_
             f"Budget: €{total_income_budget - total_cost_budget:.2f}")
 
 # =========================
-# Diagram – Totala per månad
+# Kassaflödesdiagram
 # =========================
 st.divider()
-st.subheader("📈 Diagram: Budget vs Faktiskt per månad")
+st.subheader("💸 Kassaflöde per datum")
+c.execute("SELECT name, actual, date FROM items WHERE month=?", (month,))
+rows = c.fetchall()
+if rows:
+    df_cashflow = pd.DataFrame(rows, columns=["Beskrivning", "Belopp", "Datum"])
+    df_cashflow["Datum"] = pd.to_datetime(df_cashflow["Datum"])
+    df_cashflow["Saldo"] = df_cashflow["Belopp"].cumsum()
 
-df_chart = pd.DataFrame({
-    "Kategori": ["Inkomster", "Kostnader", "Kvar att spara"],
-    "Budget": [total_income_budget, total_cost_budget, total_income_budget - total_cost_budget],
-    "Faktiskt": [total_income_actual, total_cost_actual, total_income_actual - total_cost_actual]
-})
-df_melted = df_chart.melt(id_vars="Kategori", var_name="Typ", value_name="€")
-chart = alt.Chart(df_melted).mark_bar().encode(
-    x=alt.X('Kategori:N', title=""),
-    y=alt.Y('€:Q', title="Belopp (€)"),
-    color=alt.Color('Typ:N', scale=alt.Scale(range=['#87CEFA','#FFB347'])),
-    tooltip=['Kategori','Typ','€']
-).properties(width='stretch', height=400)
-st.altair_chart(chart, use_container_width=False)
+    st.dataframe(df_cashflow)
+    chart_cashflow = alt.Chart(df_cashflow).mark_line(point=True).encode(
+        x=alt.X("Datum:T", title="Datum"),
+        y=alt.Y("Saldo:Q", title="Löpande saldo (€)"),
+        color=alt.condition(alt.datum.Saldo<0, alt.value("red"), alt.value("green")),
+        tooltip=["Datum","Beskrivning","Belopp","Saldo"]
+    ).properties(width='stretch', height=400)
+    st.altair_chart(chart_cashflow, use_container_width=True)
 
 # =========================
-# Årsöversikt – interaktiv
+# Årsöversikt – alla månader
 # =========================
 st.divider()
-st.subheader("📅 Årsöversikt – klicka på månad för att hoppa dit")
-
+st.subheader("📅 Årsöversikt")
 summary_list = []
 for m in months:
     c.execute("SELECT SUM(actual), SUM(budget) FROM items WHERE month=? AND category='Inkomster'", (m,))
@@ -271,21 +270,11 @@ df_melted_year = df_year.melt(id_vars="Månad",
                                           "Kvar_Budget","Kvar_Faktiskt"],
                               var_name="Typ", value_name="€")
 
-# Altair chart
-click = alt.selection_single(fields=['Månad'], on='click')
 chart_year = alt.Chart(df_melted_year).mark_bar().encode(
     x=alt.X('Månad:N', title="Månad"),
     y=alt.Y('€:Q', title="Belopp (€)"),
     color=alt.Color('Typ:N', scale=alt.Scale(range=['#87CEFA','#32CD32','#FFB347','#FF6347','#87CEFA','#32CD32'])),
     tooltip=['Månad','Typ','€']
-).add_selection(click).properties(width='stretch', height=400)
+).properties(width='stretch', height=400)
 
-st.altair_chart(chart_year, use_container_width=False)
-
-# Klick på månad uppdaterar session_state
-if click:
-    sel = chart_year.selection
-    if sel:
-        st.session_state["month"] = sel.get('Månad')
-        st.session_state["reload"] = not st.session_state.get("reload", False)
-        st.stop()
+st.altair_chart(chart_year, use_container_width=True)
