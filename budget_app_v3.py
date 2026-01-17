@@ -5,7 +5,7 @@ import altair as alt
 from datetime import date
 
 # =========================
-# Streamlit setup
+# Grundinställningar
 # =========================
 st.set_page_config(page_title="Familjebudget", layout="wide")
 
@@ -14,12 +14,14 @@ st.set_page_config(page_title="Familjebudget", layout="wide")
 # =========================
 st.markdown("""
 <style>
-input { border-radius: 6px !important; }
-.budget { background-color: #eeeeee !important; }
-.actual { background-color: #fff3b0 !important; }
-.green-row { background-color: #e8ffe8; padding:6px; border-radius:6px; }
-.red-row { background-color: #ffe8e8; padding:6px; border-radius:6px; }
-.sidebar-bottom { position: fixed; bottom: 20px; width: 90%; }
+input.budget { background-color: #eeeeee !important; }
+input.actual { background-color: #fff3b0 !important; }
+.green-row { background-color: #e6ffe6; padding:6px; border-radius:6px; }
+.red-row { background-color: #ffe6e6; padding:6px; border-radius:6px; }
+.sidebar-bottom {
+    position: fixed;
+    bottom: 20px;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -27,9 +29,9 @@ input { border-radius: 6px !important; }
 # Login
 # =========================
 USERS = {"admin": "1234"}
+
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
-    st.session_state.username = ""
 
 if not st.session_state.logged_in:
     st.title("🔐 Logga in")
@@ -38,204 +40,206 @@ if not st.session_state.logged_in:
     if st.button("Logga in"):
         if USERS.get(u) == p:
             st.session_state.logged_in = True
-            st.session_state.username = u
             st.rerun()
         else:
             st.error("Fel uppgifter")
     st.stop()
 
 # =========================
-# Database
+# Databas
 # =========================
 conn = sqlite3.connect("budget.db", check_same_thread=False)
 c = conn.cursor()
 
-# Tables
-c.execute("""
-CREATE TABLE IF NOT EXISTS categories (
-    user TEXT,
-    month TEXT,
-    category TEXT,
-    PRIMARY KEY(user, month, category)
-)
-""")
 c.execute("""
 CREATE TABLE IF NOT EXISTS items (
-    user TEXT,
     month TEXT,
     category TEXT,
     name TEXT,
     budget REAL,
     actual REAL,
-    PRIMARY KEY(user, month, category, name)
+    pay_date TEXT
 )
 """)
+
 c.execute("""
 CREATE TABLE IF NOT EXISTS notes (
-    user TEXT,
-    month TEXT,
-    content TEXT,
-    PRIMARY KEY(user, month)
+    month TEXT PRIMARY KEY,
+    content TEXT
 )
 """)
-c.execute("""
-CREATE TABLE IF NOT EXISTS cashflow (
-    user TEXT,
-    month TEXT,
-    name TEXT,
-    amount REAL,
-    pay_date TEXT,
-    PRIMARY KEY(user, month, name)
-)
-""")
+
 conn.commit()
 
 # =========================
 # Sidebar
 # =========================
 with st.sidebar:
-    st.header("📅 Månad")
-    months = ["Januari","Februari","Mars","April","Maj","Juni",
-              "Juli","Augusti","September","Oktober","November","December"]
+    st.header("📅 Månader")
+    months = [
+        "Januari","Februari","Mars","April","Maj","Juni",
+        "Juli","Augusti","September","Oktober","November","December"
+    ]
     month = st.selectbox("Välj månad", months)
 
     st.divider()
-    st.subheader("Rubriker & Underrubriker")
+    st.header("👁️ Visa / Dölj")
 
-    # Ladda rubriker
-    c.execute("SELECT category FROM categories WHERE user=? AND month=? ORDER BY category",(st.session_state.username, month))
-    rows = c.fetchall()
-    categories = [r[0] for r in rows]
-
-    # Lägg till rubrik
-    new_cat = st.text_input("Ny rubrik")
-    if st.button("Lägg till rubrik"):
-        if new_cat and new_cat not in categories:
-            c.execute("INSERT INTO categories(user, month, category) VALUES(?,?,?)",
-                      (st.session_state.username, month, new_cat))
-            conn.commit()
-            st.experimental_rerun()
-
-    # Dropdown per rubrik
-    selected_cat = st.selectbox("Välj rubrik för sammanfattning", ["Totalt"] + categories)
-
-    # Underrubriker för vald rubrik
-    selected_item = None
-    if selected_cat != "Totalt":
-        c.execute("SELECT name FROM items WHERE user=? AND month=? AND category=? ORDER BY name",
-                  (st.session_state.username, month, selected_cat))
-        items = [r[0] for r in c.fetchall()]
-        if items:
-            selected_item = st.selectbox("Välj underrubrik för sammanfattning", ["Alla"] + items)
+    show_summary = st.toggle("Sammanfattning", True)
+    show_budget_items = st.toggle("Visa budgeterade underrubriker", False)
+    show_cashflow = st.toggle("Kassaflöde", True)
+    show_month = st.toggle("Månadsöversikt", True)
+    show_year = st.toggle("Årsöversikt", True)
+    show_notes = st.toggle("Anteckningar", True)
+    show_meals = st.toggle("Måltidsplanering", False)
 
     st.divider()
-    show_summary = st.checkbox("Visa sammanfattning", True)
-    show_cashflow = st.checkbox("Visa kassaflöde", True)
-    show_notes = st.checkbox("Visa anteckningar", True)
-    st.markdown("---")
-    if st.button("Logga ut"):
+    st.markdown("<div class='sidebar-bottom'>", unsafe_allow_html=True)
+    if st.button("🚪 Logga ut"):
         st.session_state.clear()
         st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# =========================
+# Hämta data
+# =========================
+df = pd.read_sql(
+    "SELECT * FROM items WHERE month=?",
+    conn,
+    params=(month,)
+)
+
+categories = sorted(df["category"].unique()) if not df.empty else []
 
 # =========================
 # Anteckningar
 # =========================
 if show_notes:
-    st.subheader(f"📝 Anteckningar - {month}")
-    c.execute("SELECT content FROM notes WHERE user=? AND month=?",
-              (st.session_state.username, month))
-    row = c.fetchone()
-    note_text = row[0] if row else ""
-    new_note = st.text_area("Anteckningar", value=note_text, height=120)
-    if new_note != note_text:
-        c.execute("INSERT OR REPLACE INTO notes(user, month, content) VALUES(?,?,?)",
-                  (st.session_state.username, month, new_note))
+    st.subheader(f"📝 Anteckningar – {month}")
+    row = c.execute("SELECT content FROM notes WHERE month=?", (month,)).fetchone()
+    note = row[0] if row else ""
+    new_note = st.text_area("Anteckningar", note, height=120)
+    if new_note != note:
+        c.execute("INSERT OR REPLACE INTO notes VALUES (?,?)", (month, new_note))
         conn.commit()
 
 # =========================
-# Huvudsida: Rubriker & Underrubriker
+# Budget & Utgifter
 # =========================
-total_budget = 0
-total_actual = 0
+total_income_budget = total_income_actual = 0
+total_cost_budget = total_cost_actual = 0
 
 for cat in categories:
     with st.expander(cat, expanded=True):
-        c.execute("SELECT name, budget, actual FROM items WHERE user=? AND month=? AND category=? ORDER BY name",
-                  (st.session_state.username, month, cat))
-        items = c.fetchall()
+        cat_df = df[df["category"] == cat]
 
-        cat_budget = 0
-        cat_actual = 0
-        for name, budget_val, actual_val in items:
-            cols = st.columns(2)
-            with cols[0]:
-                b = st.number_input(f"{name} – Budget (€)", value=budget_val, key=f"{month}_{cat}_{name}_b", step=1.0)
-            with cols[1]:
-                a = st.number_input(f"{name} – Faktiskt (€)", value=actual_val, key=f"{month}_{cat}_{name}_a", step=1.0)
+        for _, r in cat_df.iterrows():
+            is_income = cat.lower() == "inkomster"
+            over = r["actual"] > r["budget"]
+            row_class = "green-row" if (is_income or not over) else "red-row"
 
-            # Spara ändringar
-            if b != budget_val or a != actual_val:
-                c.execute("INSERT OR REPLACE INTO items(user, month, category, name, budget, actual) VALUES(?,?,?,?,?)",
-                          (st.session_state.username, month, cat, name, b, a))
+            st.markdown(f"<div class='{row_class}'>", unsafe_allow_html=True)
+            c1, c2, c3 = st.columns([3,1,1])
+            with c1:
+                st.write(f"**{r['name']}**")
+                pay = st.date_input(
+                    "Betalningsdatum",
+                    value=date.fromisoformat(r["pay_date"]) if r["pay_date"] else date.today(),
+                    key=f"d_{cat}_{r['name']}"
+                )
+            with c2:
+                b = st.number_input(
+                    "Budget",
+                    value=float(r["budget"]),
+                    step=10.0,
+                    key=f"b_{cat}_{r['name']}"
+                )
+            with c3:
+                a = st.number_input(
+                    "Faktiskt",
+                    value=float(r["actual"]),
+                    step=10.0,
+                    key=f"a_{cat}_{r['name']}"
+                )
+
+            if (b,a,str(pay)) != (r["budget"], r["actual"], r["pay_date"]):
+                c.execute("""
+                UPDATE items SET budget=?, actual=?, pay_date=?
+                WHERE month=? AND category=? AND name=?
+                """,(b,a,str(pay),month,cat,r["name"]))
                 conn.commit()
 
-            # Färglogik
-            if cat.lower() == "inkomster":
-                row_class = "green-row"  # alltid grön
+            if is_income:
+                total_income_budget += b
+                total_income_actual += a
             else:
-                row_class = "green-row" if a <= b else "red-row"
+                total_cost_budget += b
+                total_cost_actual += a
 
-            st.markdown(f'<div class="{row_class}">{name} - Budget: €{b} | Faktiskt: €{a}</div>', unsafe_allow_html=True)
-
-            cat_budget += b
-            cat_actual += a
-
-        st.markdown(f"**Summa {cat} – Budget:** €{cat_budget} | Faktiskt: €{cat_actual}")
-
-        total_budget += cat_budget
-        total_actual += cat_actual
+            st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
 # Sammanfattning
 # =========================
 if show_summary:
+    st.divider()
     st.subheader("📊 Sammanfattning")
-    if selected_cat == "Totalt":
-        st.metric("Totalt Budget", f"€{total_budget}", "Kvar: €{:.2f}".format(total_budget - total_actual))
-        st.metric("Totalt Faktiskt", f"€{total_actual}")
-    else:
-        # Visa vald rubrik/underrubrik
-        cat_budget = 0
-        cat_actual = 0
-        if selected_item in [None, "Alla"]:
-            c.execute("SELECT SUM(budget), SUM(actual) FROM items WHERE user=? AND month=? AND category=?",
-                      (st.session_state.username, month, selected_cat))
-        else:
-            c.execute("SELECT budget, actual FROM items WHERE user=? AND month=? AND category=? AND name=?",
-                      (st.session_state.username, month, selected_cat, selected_item))
-        row = c.fetchone()
-        if row:
-            if selected_item in [None, "Alla"]:
-                cat_budget = row[0] or 0
-                cat_actual = row[1] or 0
-            else:
-                cat_budget = row[0]
-                cat_actual = row[1]
-        st.metric(f"{selected_cat} – Budget", f"€{cat_budget}", "Kvar: €{:.2f}".format(cat_budget - cat_actual))
-        st.metric(f"{selected_cat} – Faktiskt", f"€{cat_actual}")
+    c1,c2,c3 = st.columns(3)
+    c1.metric("Inkomster", f"€{total_income_actual:.2f}", f"Budget €{total_income_budget:.2f}")
+    c2.metric("Utgifter", f"€{total_cost_actual:.2f}", f"Budget €{total_cost_budget:.2f}")
+    c3.metric("💰 Kvar att spara",
+              f"€{total_income_actual-total_cost_actual:.2f}",
+              f"Budget €{total_income_budget-total_cost_budget:.2f}")
 
 # =========================
-# Diagram: Budget vs Faktiskt
+# Diagram
 # =========================
-df_chart = pd.DataFrame({
-    "Kategori": ["Totalt"],
-    "Budget": [total_budget],
-    "Faktiskt": [total_actual]
-})
-df_melted = df_chart.melt(id_vars="Kategori", var_name="Typ", value_name="€")
-chart = alt.Chart(df_melted).mark_bar().encode(
-    x='Kategori:N',
-    y='€:Q',
-    color='Typ:N'
-)
-st.altair_chart(chart, use_container_width=True)
+if show_month:
+    st.divider()
+    st.subheader("📈 Månadsöversikt")
+
+    chart_df = pd.DataFrame({
+        "Typ":["Inkomster","Utgifter","Kvar"],
+        "Budget":[total_income_budget,total_cost_budget,total_income_budget-total_cost_budget],
+        "Faktiskt":[total_income_actual,total_cost_actual,total_income_actual-total_cost_actual]
+    }).melt("Typ", var_name="Kategori", value_name="€")
+
+    chart = alt.Chart(chart_df).mark_bar().encode(
+        x="Typ:N",
+        y="€:Q",
+        color="Kategori:N",
+        tooltip=["Typ","Kategori","€"]
+    ).properties(height=350)
+
+    st.altair_chart(chart, use_container_width=True)
+
+# =========================
+# Årsöversikt
+# =========================
+if show_year:
+    st.divider()
+    st.subheader("📅 Årsöversikt")
+    year_data = []
+    for m in months:
+        d = pd.read_sql("SELECT * FROM items WHERE month=?", conn, params=(m,))
+        inc = d[d.category=="Inkomster"]
+        cost = d[d.category!="Inkomster"]
+        year_data.append({
+            "Månad":m,
+            "Inkomster":inc.actual.sum(),
+            "Utgifter":cost.actual.sum(),
+            "Kvar":inc.actual.sum()-cost.actual.sum()
+        })
+    st.dataframe(pd.DataFrame(year_data), use_container_width=True)
+
+# =========================
+# Måltidsplanering
+# =========================
+if show_meals:
+    st.divider()
+    st.subheader("🍽 Veckomeny")
+    days = ["Mån","Tis","Ons","Tor","Fre","Lör","Sön"]
+    cols = st.columns(7)
+    for i,d in enumerate(days):
+        with cols[i]:
+            st.text_area(d, height=80)
