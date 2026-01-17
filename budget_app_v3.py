@@ -61,6 +61,7 @@ DB_FILE = "budget.db"
 conn = sqlite3.connect(DB_FILE, check_same_thread=False)
 c = conn.cursor()
 
+# Skapa tabeller om de inte finns
 c.execute("""
 CREATE TABLE IF NOT EXISTS categories (
     month TEXT,
@@ -132,10 +133,10 @@ if st.button("Lägg till rubrik"):
         c.execute("INSERT INTO categories (month, name) VALUES (?,?)", (month,new_cat))
         conn.commit()
         st.session_state["reload"] = not st.session_state.get("reload", False)
-        st.stop()  # ersätter experimental_rerun
+        st.stop()
 
 # =========================
-# Dashboard – rubriker på rad
+# Dashboard – rubriker på rad som dropdowns
 # =========================
 if categories:
     cols = st.columns(len(categories))
@@ -236,7 +237,7 @@ if rows:
         y=alt.Y("Saldo:Q", title="Löpande saldo (€)"),
         color=alt.condition(alt.datum.Saldo<0, alt.value("red"), alt.value("green")),
         tooltip=["Datum","Beskrivning","Belopp","Saldo"]
-    ).properties(width='stretch', height=400)
+    )
     st.altair_chart(chart_cashflow, use_container_width=True)
 
 # =========================
@@ -278,6 +279,5 @@ chart_year = alt.Chart(df_melted_year).mark_bar().encode(
     y=alt.Y('€:Q', title="Belopp (€)"),
     color=alt.Color('Typ:N', scale=alt.Scale(range=['#87CEFA','#32CD32','#FFB347','#FF6347','#87CEFA','#32CD32'])),
     tooltip=['Månad','Typ','€']
-).properties(width='stretch', height=400)
-
+)
 st.altair_chart(chart_year, use_container_width=True)
