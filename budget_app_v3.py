@@ -1,175 +1,177 @@
 import streamlit as st
-import json, os
 import pandas as pd
-from io import BytesIO
 
-st.set_page_config(page_title="Familjebudget v8", layout="wide")
+# =========================
+# CSS – färger på inputs
+# =========================
+st.markdown("""
+<style>
+div[data-testid="stNumberInput"] input.budget {
+    background-color: #eeeeee !important;
+}
+div[data-testid="stNumberInput"] input.actual {
+    background-color: #fff3b0 !important;
+}
+div[data-testid="stNumberInput"] input {
+    border-radius: 6px;
+    font-weight: 500;
+}
+</style>
+""", unsafe_allow_html=True)
 
-# -------------------------
-# SESSION STATE
-# -------------------------
+# =========================
+# Hjälpfunktion för färgade inputs
+# =========================
+def colored_number_input(label, value, key, css_class):
+    st.number_input(label, value=value, key=key)
+    st.markdown(
+        f"""
+        <script>
+        const inputs = window.parent.document.querySelectorAll('input');
+        inputs.forEach(el => {{
+            if (el.getAttribute('aria-label') === "{label}") {{
+                el.classList.add("{css_class}");
+            }}
+        }});
+        </script>
+        """,
+        unsafe_allow_html=True
+    )
+
+# =========================
+# Login
+# =========================
+users = {"admin": "1234"}
+
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
-if "user" not in st.session_state:
-    st.session_state.user = ""
 
-# -------------------------
-# USERS
-# -------------------------
-USERS_FILE = "users.json"
-if not os.path.exists(USERS_FILE):
-    with open(USERS_FILE, "w") as f:
-        json.dump({"Anki": "1234", "Dani": "1234"}, f)
-
-with open(USERS_FILE) as f:
-    USERS = json.load(f)
-
-def logout():
-    st.session_state.logged_in = False
-    st.session_state.user = ""
-    st.stop()
-
-# -------------------------
-# LOGIN
-# -------------------------
 if not st.session_state.logged_in:
     st.title("🔐 Logga in")
-    u = st.text_input("Användarnamn")
-    p = st.text_input("Lösenord", type="password")
+    user = st.text_input("Användarnamn")
+    pw = st.text_input("Lösenord", type="password")
     if st.button("Logga in"):
-        if u in USERS and USERS[u] == p:
+        if user in users and pw == users[user]:
             st.session_state.logged_in = True
-            st.session_state.user = u
             st.stop()
         else:
-            st.error("Fel inloggning")
+            st.error("Fel uppgifter")
     st.stop()
 
-# -------------------------
-# FILES
-# -------------------------
-STRUCTURE_FILE = "structure.json"
-DATA_FILE = "data.json"
+# =========================
+# Logga ut
+# =========================
+col_l, col_r = st.columns([6,1])
+with col_r:
+    if st.button("Logga ut"):
+        st.session_state.clear()
+        st.stop()
 
-if not os.path.exists(STRUCTURE_FILE):
-    structure = {
-        "Inkomster": ["Lön", "Bidrag"],
-        "Fasta kostnader": ["El", "Internet"],
-        "Rörliga utgifter": ["Mat", "Utemat"]
+# =========================
+# Data-struktur
+# =========================
+months = [
+    "Januari","Februari","Mars","April","Maj","Juni",
+    "Juli","Augusti","September","Oktober","November","December"
+]
+
+categories = {
+    "Inkomster": ["Lön 1", "Lön 2"],
+    "Fasta kostnader": ["El", "Internet"],
+    "Rörliga utgifter": ["Mat", "Utemat"],
+    "Sparande": ["Buffert"]
+}
+
+if "data" not in st.session_state:
+    st.session_state.data = {}
+
+month = st.selectbox("📅 Välj månad", months)
+
+if month not in st.session_state.data:
+    st.session_state.data[month] = {
+        "notes": "",
+        "categories": {}
     }
-    with open(STRUCTURE_FILE, "w") as f:
-        json.dump(structure, f, indent=2)
-else:
-    with open(STRUCTURE_FILE) as f:
-        structure = json.load(f)
+    for c, items in categories.items():
+        st.session_state.data[month]["categories"][c] = {
+            i: {"budget": 0.0, "actual": 0.0} for i in items
+        }
 
-if not os.path.exists(DATA_FILE):
-    data = {}
-else:
-    with open(DATA_FILE) as f:
-        data = json.load(f)
+data = st.session_state.data[month]["categories"]
 
-# -------------------------
-# TOP BAR
-# -------------------------
-st.sidebar.button("🚪 Logga ut", on_click=logout)
-st.title("💶 Familjebudget")
-
-month = st.selectbox(
-    "Månad",
-    ["Januari","Februari","Mars","April","Maj","Juni",
-     "Juli","Augusti","September","Oktober","November","December"]
-)
-
-if month not in data:
-    data[month] = {"notes": {}, "values": {}}
-
-# -------------------------
-# NOTES
-# -------------------------
+# =========================
+# Anteckningar (syns alltid)
+# =========================
 st.subheader("📝 Anteckningar")
-data[month]["notes"] = st.text_area(
+st.session_state.data[month]["notes"] = st.text_area(
     "Anteckningar",
-    value=data[month]["notes"].get("text", ""),
+    value=st.session_state.data[month]["notes"],
     height=120
 )
-data[month]["notes"] = {"text": data[month]["notes"]}
 
-# -------------------------
-# CATEGORY MENUS (ONE ROW)
-# -------------------------
+# =========================
+# Dropdown-rubriker i en rad
+# =========================
+st.divider()
 st.subheader("📂 Budget")
 
-cols = st.columns(len(structure))
-total_income = 0
-total_expense = 0
+cols = st.columns(len(data))
 
-for col, (cat, items) in zip(cols, structure.items()):
-    with col:
-        with st.expander(cat, expanded=False):
-            cat_sum = 0
-            for item in items:
-                key = f"{month}_{cat}_{item}"
-                if key not in data[month]["values"]:
-                    data[month]["values"][key] = {"budget": 0.0, "actual": 0.0}
+total_income_budget = 0
+total_income_actual = 0
+total_cost_budget = 0
+total_cost_actual = 0
 
-                b = st.number_input(
+for idx, (category, items) in enumerate(data.items()):
+    with cols[idx]:
+        with st.expander(category, expanded=False):
+            cat_budget = 0
+            cat_actual = 0
+
+            for item, vals in items.items():
+                colored_number_input(
                     f"{item} – Budget (€)",
-                    min_value=0.0,
-                    value=data[month]["values"][key]["budget"],
-                    key=key+"_b"
+                    vals["budget"],
+                    f"{month}_{category}_{item}_B",
+                    "budget"
                 )
-                a = st.number_input(
+                colored_number_input(
                     f"{item} – Faktiskt (€)",
-                    min_value=0.0,
-                    value=data[month]["values"][key]["actual"],
-                    key=key+"_a"
+                    vals["actual"],
+                    f"{month}_{category}_{item}_A",
+                    "actual"
                 )
 
-                data[month]["values"][key] = {"budget": b, "actual": a}
-                cat_sum += a
+                vals["budget"] = st.session_state[f"{month}_{category}_{item}_B"]
+                vals["actual"] = st.session_state[f"{month}_{category}_{item}_A"]
 
-            st.markdown(f"**Summa: {cat_sum:.2f} €**")
+                cat_budget += vals["budget"]
+                cat_actual += vals["actual"]
 
-            if cat.lower().startswith("inkomst"):
-                total_income += cat_sum
+            st.markdown(f"**Summa budget:** €{cat_budget:.2f}")
+            st.markdown(f"**Summa faktiskt:** €{cat_actual:.2f}")
+
+            if category == "Inkomster":
+                total_income_budget += cat_budget
+                total_income_actual += cat_actual
             else:
-                total_expense += cat_sum
+                total_cost_budget += cat_budget
+                total_cost_actual += cat_actual
 
-# -------------------------
-# SUMMARY
-# -------------------------
+# =========================
+# Sammanfattning
+# =========================
 st.divider()
-kvar = total_income - total_expense
+st.subheader("📊 Sammanfattning")
 
-c1, c2, c3 = st.columns(3)
-c1.metric("Totala inkomster", f"{total_income:.2f} €")
-c2.metric("Totala kostnader", f"{total_expense:.2f} €")
-c3.metric("Kvar att använda / spara", f"{kvar:.2f} €")
+st.metric("Totala inkomster (Budget)", f"€{total_income_budget:.2f}")
+st.metric("Totala inkomster (Faktiskt)", f"€{total_income_actual:.2f}")
 
-# -------------------------
-# EDIT STRUCTURE
-# -------------------------
-st.sidebar.divider()
-st.sidebar.subheader("⚙️ Redigera rubriker")
+st.metric("Totala kostnader (Budget)", f"€{total_cost_budget:.2f}")
+st.metric("Totala kostnader (Faktiskt)", f"€{total_cost_actual:.2f}")
 
-for cat in list(structure.keys()):
-    new_cat = st.sidebar.text_input("Rubrik", value=cat, key="cat_"+cat)
-    if new_cat != cat:
-        structure[new_cat] = structure.pop(cat)
+st.metric(
+    "💰 Kvar att använda / spara (Faktiskt)",
+    f"€{(total_income_actual - total_cost_actual):.2f}"
+)
 
-    for i, item in enumerate(structure[new_cat]):
-        structure[new_cat][i] = st.sidebar.text_input(
-            "Underrubrik",
-            value=item,
-            key=f"{new_cat}_{i}"
-        )
-
-    if st.sidebar.button(f"+ Lägg till underrubrik ({new_cat})"):
-        structure[new_cat].append("Ny post")
-
-# Save structure + data
-with open(STRUCTURE_FILE, "w") as f:
-    json.dump(structure, f, indent=2)
-with open(DATA_FILE, "w") as f:
-    json.dump(data, f, indent=2)
