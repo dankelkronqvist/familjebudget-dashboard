@@ -48,7 +48,6 @@ DB_FILE = "budget.db"
 conn = sqlite3.connect(DB_FILE, check_same_thread=False)
 c = conn.cursor()
 
-# Skapa tabeller
 c.execute("""
 CREATE TABLE IF NOT EXISTS categories (
     month TEXT,
@@ -57,6 +56,7 @@ CREATE TABLE IF NOT EXISTS categories (
     position INTEGER
 )
 """)
+
 c.execute("""
 CREATE TABLE IF NOT EXISTS items (
     item_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -68,12 +68,14 @@ CREATE TABLE IF NOT EXISTS items (
     date DATE
 )
 """)
+
 c.execute("""
 CREATE TABLE IF NOT EXISTS notes (
     month TEXT PRIMARY KEY,
     content TEXT
 )
 """)
+
 c.execute("""
 CREATE TABLE IF NOT EXISTS meals (
     month TEXT,
@@ -82,6 +84,7 @@ CREATE TABLE IF NOT EXISTS meals (
     PRIMARY KEY(month, day)
 )
 """)
+
 c.execute("""
 CREATE TABLE IF NOT EXISTS events (
     month TEXT,
@@ -90,6 +93,7 @@ CREATE TABLE IF NOT EXISTS events (
     PRIMARY KEY(month, date)
 )
 """)
+
 conn.commit()
 
 # =========================
@@ -113,10 +117,11 @@ if st.sidebar.button("Lägg till rubrik"):
     c.execute("SELECT name FROM categories WHERE month=?", (month,))
     existing = [r[0] for r in c.fetchall()]
     if new_cat and new_cat not in existing:
-        c.execute("INSERT INTO categories (month, name, position) VALUES (?,?,?)",
-                  (month, new_cat, len(existing)))
+        c.execute(
+            "INSERT INTO categories (month, name, position) VALUES (?,?,?)",
+            (month, new_cat, len(existing))
+        )
         conn.commit()
-        st.session_state["reload"] = not st.session_state.get("reload", False)
         st.stop()
 
 # =========================
@@ -132,60 +137,38 @@ show_calendar = st.sidebar.checkbox("Kalender", value=True)
 # =========================
 # Hämta rubriker
 # =========================
-c.execute("SELECT name, position FROM categories WHERE month=? ORDER BY position", (month,))
+c.execute(
+    "SELECT name, position FROM categories WHERE month=? ORDER BY position",
+    (month,)
+)
 categories = c.fetchall()
 
 # =========================
-# Vänsterpanel – Rubrik och underrubriker
+# VÄNSTERPANEL – RUBRIKER + TA BORT (NYTT)
 # =========================
-st.sidebar.subheader("Rubriker & Underrubriker")
+st.sidebar.subheader("📂 Rubriker")
+
 for cat_name, pos in categories:
-    with st.sidebar.expander(f"{cat_name}"):
-        # Upp/Ner-knappar
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("⬆", key=f"up_{cat_name}"):
-                if pos>0:
-                    c.execute("UPDATE categories SET position=? WHERE month=? AND position=?", (pos-1, month, pos-1))
-                    c.execute("UPDATE categories SET position=? WHERE month=? AND name=?", (pos, month, cat_name))
-                    conn.commit()
-                    st.session_state["reload"] = not st.session_state.get("reload", False)
-                    st.stop()
-        with col2:
-            if st.button("⬇", key=f"down_{cat_name}"):
-                c.execute("SELECT MAX(position) FROM categories WHERE month=?", (month,))
-                max_pos = c.fetchone()[0]
-                if pos<max_pos:
-                    c.execute("UPDATE categories SET position=? WHERE month=? AND position=?", (pos+1, month, pos+1))
-                    c.execute("UPDATE categories SET position=? WHERE month=? AND name=?", (pos, month, cat_name))
-                    conn.commit()
-                    st.session_state["reload"] = not st.session_state.get("reload", False)
-                    st.stop()
+    col1, col2 = st.sidebar.columns([4, 1])
 
-        # Lägg till underrubrik
-        new_item = st.text_input(f"Lägg till underrubrik {cat_name}", key=f"newitem_{cat_name}")
-        if st.button("➕ Lägg till", key=f"btn_item_{cat_name}"):
-            if new_item:
-                for m in months:
-                    c.execute("""INSERT INTO items (month, category, name, budget, actual, date)
-                                 VALUES (?,?,?,?,?,?)""", (m, cat_name, new_item, 0,0, datetime.date.today()))
-                conn.commit()
-                st.session_state["reload"] = not st.session_state.get("reload", False)
-                st.stop()
+    with col1:
+        st.write(cat_name)
 
-        # Visa underrubriker + ta bort
-        c.execute("SELECT item_id, name FROM items WHERE month=? AND category=? ORDER BY item_id", (month, cat_name))
-        items = c.fetchall()
-        for item_id, item_name in items:
-            if st.button(f"🗑 {item_name}", key=f"del_{item_id}"):
-                for m in months:
-                    c.execute("DELETE FROM items WHERE month=? AND item_id=?", (m, item_id))
-                conn.commit()
-                st.session_state["reload"] = not st.session_state.get("reload", False)
-                st.stop()
+    with col2:
+        if st.button("🗑", key=f"delete_cat_{cat_name}"):
+            c.execute(
+                "DELETE FROM categories WHERE month=? AND name=?",
+                (month, cat_name)
+            )
+            c.execute(
+                "DELETE FROM items WHERE month=? AND category=?",
+                (month, cat_name)
+            )
+            conn.commit()
+            st.stop()
 
 # =========================
-# Huvudpanel – Anteckningar
+# Anteckningar
 # =========================
 if show_notes:
     st.subheader("📝 Anteckningar")
@@ -194,11 +177,14 @@ if show_notes:
     note_text = row[0] if row else ""
     new_note = st.text_area("Anteckningar", value=note_text, height=120)
     if new_note != note_text:
-        c.execute("INSERT OR REPLACE INTO notes (month, content) VALUES (?,?)", (month, new_note))
+        c.execute(
+            "INSERT OR REPLACE INTO notes (month, content) VALUES (?,?)",
+            (month, new_note)
+        )
         conn.commit()
 
 # =========================
-# Rubriker & underrubriker i huvudpanelen
+# Rubriker & Underrubriker – huvudpanel
 # =========================
 total_income_budget = 0
 total_income_actual = 0
@@ -206,76 +192,91 @@ total_cost_budget = 0
 total_cost_actual = 0
 
 for cat_name, pos in categories:
-    with st.expander(f"{cat_name}"):
-        c.execute("SELECT item_id, name, budget, actual, date FROM items WHERE month=? AND category=? ORDER BY item_id", (month, cat_name))
+    with st.expander(cat_name):
+        c.execute(
+            "SELECT item_id, name, budget, actual, date FROM items "
+            "WHERE month=? AND category=? ORDER BY item_id",
+            (month, cat_name)
+        )
         items = c.fetchall()
-        for item_id, item_name, budget_val, actual_val, date_val in items:
-            col_b, col_a, col_date = st.columns([2,2,2])
-            with col_b:
-                b_new = st.number_input(f"{item_name} – Budget (€)", value=budget_val, key=f"{month}_{cat_name}_{item_id}_b")
-            with col_a:
-                a_new = st.number_input(f"{item_name} – Faktiskt (€)", value=actual_val, key=f"{month}_{cat_name}_{item_id}_a")
-            with col_date:
-                d_new = st.date_input("Datum", value=datetime.datetime.strptime(date_val, "%Y-%m-%d").date() if date_val else datetime.date.today(),
-                                      key=f"{month}_{cat_name}_{item_id}_d")
 
-            # Spara ändringar och kopiera budget till alla månader
+        for item_id, item_name, budget_val, actual_val, date_val in items:
+            col_b, col_a, col_d = st.columns(3)
+
+            with col_b:
+                b_new = st.number_input(
+                    f"{item_name} – Budget (€)",
+                    value=budget_val,
+                    key=f"{month}_{item_id}_b"
+                )
+
+            with col_a:
+                a_new = st.number_input(
+                    f"{item_name} – Faktiskt (€)",
+                    value=actual_val,
+                    key=f"{month}_{item_id}_a"
+                )
+
+            with col_d:
+                d_new = st.date_input(
+                    "Datum",
+                    value=datetime.datetime.strptime(
+                        date_val, "%Y-%m-%d"
+                    ).date() if date_val else datetime.date.today(),
+                    key=f"{month}_{item_id}_d"
+                )
+
             if b_new != budget_val or a_new != actual_val or d_new != date_val:
-                c.execute("""UPDATE items SET budget=?, actual=?, date=? WHERE month=? AND item_id=?""",
-                          (b_new, a_new, d_new, month, item_id))
+                c.execute(
+                    "UPDATE items SET budget=?, actual=?, date=? "
+                    "WHERE month=? AND item_id=?",
+                    (b_new, a_new, d_new, month, item_id)
+                )
+
                 for m in months:
                     if m != month:
-                        c.execute("""UPDATE items SET budget=? WHERE month=? AND category=? AND name=?""",
-                                  (b_new, m, cat_name, item_name))
+                        c.execute(
+                            "UPDATE items SET budget=? "
+                            "WHERE month=? AND category=? AND name=?",
+                            (b_new, m, cat_name, item_name)
+                        )
                 conn.commit()
 
-            # Färgkod
-            row_class = "green-row" if a_new <= b_new else "red-row"
-            st.markdown(f'<div class="{row_class}">{item_name} – Budget: {b_new} | Faktiskt: {a_new} | Datum: {d_new}</div>', unsafe_allow_html=True)
-
             if cat_name.lower() == "inkomster":
+                row_class = "green-row" if a_new >= b_new else "red-row"
                 total_income_budget += b_new
                 total_income_actual += a_new
             else:
+                row_class = "green-row" if a_new <= b_new else "red-row"
                 total_cost_budget += b_new
                 total_cost_actual += a_new
 
-# =========================
-# Veckoplanering
-# =========================
-if show_meals:
-    st.subheader("📅 Veckoplanering")
-    days = ["Måndag","Tisdag","Onsdag","Torsdag","Fredag","Lördag","Söndag"]
-    for day in days:
-        c.execute("SELECT meal FROM meals WHERE month=? AND day=?", (month, day))
-        row = c.fetchone()
-        meal_text = row[0] if row else ""
-        new_meal = st.text_input(f"{day}", value=meal_text, key=f"meal_{day}")
-        if new_meal != meal_text:
-            c.execute("INSERT OR REPLACE INTO meals (month, day, meal) VALUES (?,?,?)", (month, day, new_meal))
-            conn.commit()
-
-# =========================
-# Kalender
-# =========================
-if show_calendar:
-    st.subheader("📆 Kalender")
-    today = datetime.date.today()
-    cal_date = st.date_input("Välj datum", value=today, key="calendar_date")
-    c.execute("SELECT description FROM events WHERE month=? AND date=?", (month, cal_date))
-    row = c.fetchone()
-    desc_text = row[0] if row else ""
-    new_desc = st.text_input("Händelse", value=desc_text, key=f"event_{cal_date}")
-    if new_desc != desc_text:
-        c.execute("INSERT OR REPLACE INTO events (month, date, description) VALUES (?,?,?)", (month, cal_date, new_desc))
-        conn.commit()
+            st.markdown(
+                f'<div class="{row_class}">{item_name} – '
+                f'Budget: {b_new} | Faktiskt: {a_new} | Datum: {d_new}</div>',
+                unsafe_allow_html=True
+            )
 
 # =========================
 # Sammanfattning
 # =========================
 st.subheader("📊 Sammanfattning")
 col1, col2, col3 = st.columns(3)
-col1.metric("Totala inkomster", f"€{total_income_actual:.2f}", f"Budget: €{total_income_budget:.2f}")
-col2.metric("Totala kostnader", f"€{total_cost_actual:.2f}", f"Budget: €{total_cost_budget:.2f}")
-col3.metric("💰 Kvar att använda / spara", f"€{total_income_actual - total_cost_actual:.2f}",
-            f"Budget: €{total_income_budget - total_cost_budget:.2f}")
+
+col1.metric(
+    "Totala inkomster",
+    f"€{total_income_actual:.2f}",
+    f"Budget: €{total_income_budget:.2f}"
+)
+
+col2.metric(
+    "Totala kostnader",
+    f"€{total_cost_actual:.2f}",
+    f"Budget: €{total_cost_budget:.2f}"
+)
+
+col3.metric(
+    "💰 Kvar att använda / spara",
+    f"€{total_income_actual - total_cost_actual:.2f}",
+    f"Budget: €{total_income_budget - total_cost_budget:.2f}"
+)
