@@ -30,16 +30,10 @@ if not st.session_state.logged_in:
     if st.button("Logga in"):
         if u in users and p == users[u]:
             st.session_state.logged_in = True
-            st.stop()
+            st.experimental_rerun()
         else:
             st.error("Fel uppgifter")
     st.stop()
-
-# Logout
-with st.sidebar:
-    if st.button("Logga ut"):
-        st.session_state.clear()
-        st.stop()
 
 # =========================
 # SQLite Setup
@@ -48,6 +42,7 @@ DB_FILE = "budget.db"
 conn = sqlite3.connect(DB_FILE, check_same_thread=False)
 c = conn.cursor()
 
+# Skapa tabeller
 c.execute("""
 CREATE TABLE IF NOT EXISTS categories (
     month TEXT,
@@ -122,7 +117,7 @@ if st.sidebar.button("Lägg till rubrik"):
             (month, new_cat, len(existing))
         )
         conn.commit()
-        st.stop()
+        st.session_state["reload"] = not st.session_state.get("reload", False)
 
 # =========================
 # Toggle sektioner
@@ -144,16 +139,14 @@ c.execute(
 categories = c.fetchall()
 
 # =========================
-# VÄNSTERPANEL – RUBRIKER + TA BORT (NYTT)
+# VÄNSTERPANEL – RUBRIKER + TA BORT
 # =========================
 st.sidebar.subheader("📂 Rubriker")
 
 for cat_name, pos in categories:
     col1, col2 = st.sidebar.columns([4, 1])
-
     with col1:
         st.write(cat_name)
-
     with col2:
         if st.button("🗑", key=f"delete_cat_{cat_name}"):
             c.execute(
@@ -165,7 +158,7 @@ for cat_name, pos in categories:
                 (month, cat_name)
             )
             conn.commit()
-            st.stop()
+            st.session_state["reload"] = not st.session_state.get("reload", False)
 
 # =========================
 # Anteckningar
@@ -232,7 +225,7 @@ for cat_name, pos in categories:
                     "WHERE month=? AND item_id=?",
                     (b_new, a_new, d_new, month, item_id)
                 )
-
+                # Kopiera budget till alla månader
                 for m in months:
                     if m != month:
                         c.execute(
